@@ -5,6 +5,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import vm from 'node:vm';
 import { startTunnel } from './tunnel.js';
 
 const TOKEN = process.env.BOT_TOKEN;
@@ -15,7 +16,7 @@ const PORT = Number(process.env.PORT) || 3000;
 if (!TOKEN) throw new Error('BOT_TOKEN is not set');
 
 // ---------- хранилище заказов ----------
-const DATA_DIR = new URL('./data/', import.meta.url);
+const DATA_DIR = process.env.DATA_DIR ? new URL(`file:///${process.env.DATA_DIR.replace(/\\/g, '/').replace(/\/?$/, '/')}`) : new URL('./data/', import.meta.url);
 const DB_FILE = new URL('./orders.json', DATA_DIR);
 fs.mkdirSync(DATA_DIR, { recursive: true });
 let orders = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : [];
@@ -83,7 +84,7 @@ function adminText(o) {
   return `${EMOJI[o.status] || '🛍'} <b>Заказ ${esc(o.id)}</b> — ${esc(STATUS[o.status] || o.status)}\n\n` +
     itemsOf(o).map((i) => `• ${esc(i.title)}${i.size ? ` (${esc(i.size)})` : ''} — ${esc(i.price)} ₽`).join('\n') + '\n' +
     `Итого: <b>${esc(o.total)} ₽</b>\n` +
-    `Оплата: СБП (демо)\n\n` +
+    `⚠️ <b>ДЕМО-оплата: деньги НЕ поступали.</b> Не отправляй вещь, пока не увидишь деньги на счёте.\n\n` +
     `ФИО: ${esc(o.name)}\nТел: ${esc(o.phone)}\n` +
     `Доставка: ${esc(o.delivery)}\nАдрес: ${esc(o.addr)}\n` +
     (o.comment ? `Комментарий: ${esc(o.comment)}\n` : '') +
@@ -188,6 +189,7 @@ async function poll() {
   for (;;) {
     try {
       const updates = await api('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query'] });
+      if (!updates) { await new Promise((r) => setTimeout(r, 5000)); continue; }
       for (const u of updates || []) {
         offset = u.update_id + 1;
         (u.message ? onMessage(u.message) : u.callback_query ? onCallback(u.callback_query) : Promise.resolve())
@@ -211,8 +213,36 @@ function checkInitData(initData) {
   const secret = crypto.createHmac('sha256', 'WebAppData').update(TOKEN).digest();
   const sign = crypto.createHmac('sha256', secret).update(data).digest('hex');
   if (sign.length !== hash.length || !crypto.timingSafeEqual(Buffer.from(sign), Buffer.from(hash))) return null;
+  // Подпись старше суток не принимаем, чтобы перехваченные данные нельзя было переиспользовать.
+  if (Date.now() / 1000 - Number(params.get('auth_date') || 0) > 86400) return null;
   try { return JSON.parse(params.get('user') || 'null'); } catch { return null; }
 }
+
+// Каталог читаем с диска (тот же data.js, что на сайте): цены и названия берём отсюда, а не из запроса.
+const CATALOG_FILE = new URL('../data.js', import.meta.url);
+let catalog = { mtime: 0, byId: new Map() };
+function getCatalog() {
+  const { mtimeMs } = fs.statSync(CATALOG_FILE);
+  if (mtimeMs !== catalog.mtime) {
+    const sandbox = { window: {} };
+    vm.runInNewContext(fs.readFileSync(CATALOG_FILE, 'utf8'), sandbox, { timeout: 1000 });
+    catalog = { mtime: mtimeMs, byId: new Map((sandbox.window.PRODUCTS || []).map((p) => [p.id, p])) };
+  }
+  return catalog.byId;
+}
+
+// Не больше 3 заказов в сутки и 1 запроса в 10 секунд на покупателя — защита от того,
+// чтобы кто-то «скупил» весь каталог фейковыми заказами.
+const lastHit = new Map();
+function rateLimited(userId) {
+  const now = Date.now();
+  if (now - (lastHit.get(userId) || 0) < 10e3) return true;
+  lastHit.set(userId, now);
+  const day = orders.filter((o) => o.userId === userId && now - Date.parse(o.createdAt) < 864e5 && o.status !== 'canceled');
+  return day.length >= 3;
+}
+const NAME_RE = /^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?( [А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?){1,2}$/;
+const PHONE_RE = /^\+7 \(9\d\d\) \d{3}-\d\d-\d\d$/;
 
 const pick = (o) => ({
   id: o.id, productId: o.productId, items: itemsOf(o), title: o.title, size: o.size, total: o.total, name: o.name, phone: o.phone,
@@ -248,15 +278,22 @@ const server = http.createServer(async (req, res) => {
     try {
       const o = JSON.parse(body).order || {};
       if (!/^SG-[A-Z0-9]{3,8}$/.test(o.id) || findOrder(o.id)) return json(400, { error: 'bad id' });
-      const items = (Array.isArray(o.items) && o.items.length ? o.items : [{ productId: o.productId, title: o.title, size: o.size, price: o.total }])
-        .slice(0, 20).map((i) => ({ productId: str(i.productId, 80), title: str(i.title, 120), size: str(i.size, 20), price: Number(i.price) || 0 }));
+      // Из запроса берём только id вещей; цену, название и размер — из каталога на сервере.
+      const ids = [...new Set((Array.isArray(o.items) && o.items.length ? o.items.map((i) => i && i.productId) : [o.productId]).map((x) => str(x, 80)))];
+      const cat = getCatalog();
+      if (!ids.length || ids.length > 10 || ids.some((id) => !cat.has(id))) return json(400, { error: 'bad items' });
+      const items = ids.map((id) => { const p = cat.get(id); return { productId: id, title: p.title, size: p.size || '', price: p.price }; });
+      if (!NAME_RE.test(str(o.name, 120)) || !PHONE_RE.test(str(o.phone, 30)) || str(o.addr, 300).trim().length < 8) return json(400, { error: 'bad contact' });
+      if (!['cdek', 'post', '5post', 'ymarket'].includes(o.deliveryId)) return json(400, { error: 'bad delivery' });
+      if (rateLimited(user.id)) return json(429, { error: 'too many orders' });
       const taken = soldIds();
       if (items.some((i) => taken.has(i.productId))) return json(409, { error: 'sold' });
       const rec = {
         id: o.id, userId: user.id, username: user.username || '', firstName: user.first_name || '',
-        productId: items[0].productId, items, title: str(o.title, 140), size: items[0].size, total: items.reduce((sum, i) => sum + i.price, 0),
+        productId: items[0].productId, items, title: items[0].title + (items.length > 1 ? ` + ещё ${items.length - 1}` : ''),
+        size: items[0].size, total: items.reduce((sum, i) => sum + i.price, 0),
         name: str(o.name, 120), phone: str(o.phone, 30), addr: str(o.addr, 300),
-        delivery: str(o.delivery, 40), deliveryId: str(o.deliveryId, 20), comment: str(o.comment, 500),
+        delivery: str(o.delivery, 40), deliveryId: o.deliveryId, comment: str(o.comment, 500),
         status: 'paid', track: '', createdAt: new Date().toISOString(),
       };
       orders.push(rec); save();

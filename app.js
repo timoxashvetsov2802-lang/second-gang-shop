@@ -33,8 +33,11 @@
 
   // Адрес сервера бота приходит параметром ?api= из кнопки бота (адрес туннеля меняется).
   const apiParam = new URLSearchParams(location.search).get('api');
-  if (apiParam && /^https:\/\//.test(apiParam)) store.set('sg_api', apiParam);
-  const API = (apiParam && /^https:\/\//.test(apiParam) ? apiParam : store.get('sg_api', '')) || S.api || '';
+  // Принимаем только адреса нашего туннеля, чтобы чужая ссылка не подменила сервер.
+  const okApi = (u) => typeof u === 'string' && /^https:\/\/[a-z0-9-]+\.lhr\.life$/.test(u);
+  if (okApi(apiParam)) store.set('sg_api', apiParam);
+  const stored = store.get('sg_api', '');
+  const API = (okApi(apiParam) ? apiParam : okApi(stored) ? stored : '') || S.api || '';
 
   // ---------- helpers ----------
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -193,6 +196,7 @@
         <div class="dots" id="dots">${p.photos.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : noPhoto(p, true)}
         ${favBtn(p.id)}
       </div>
+      ${p.photos.length > 1 ? `<div class="thumbs" id="thumbs">${p.photos.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i ? '' : 'on'}" alt="">`).join('')}</div>` : ''}
       <div class="pinfo">
         ${badge ? `<span class="pbadge">${badge}</span>` : ''}
         <h1>${esc(p.title)}</h1>
@@ -510,11 +514,11 @@
 
   // true — заказ принят; false — вещь уже купил кто-то другой.
   async function sendOrder(o) {
-    if (!API || !inTg) return true;
+    if (!API || !inTg) return 'ok';
     try {
       const r = await apiFetch('/order', { method: 'POST', body: JSON.stringify({ order: o }) });
-      return r.status !== 409;
-    } catch (e) { return true; }
+      return r.ok ? 'ok' : r.status === 409 ? 'sold' : r.status === 429 ? 'limit' : 'error';
+    } catch (e) { return 'error'; }
   }
 
   // Подтягиваем статусы и трек-номера, которые админ выставил в боте.
@@ -680,8 +684,12 @@
       haptic('medium');
       sheet.hidden = false;
       card.innerHTML = `<div class="sheet-bank"><span class="sbp-logo">СБП</span>Система быстрых платежей</div><div class="sheet-wait">${I.loader}<span>Проводим платёж…</span></div>`;
-      const [ok] = await Promise.all([sendOrder({ ...o, status: 'paid' }), new Promise((r) => setTimeout(r, 1600))]);
-      if (!ok) {
+      const [res] = await Promise.all([sendOrder({ ...o, status: 'paid' }), new Promise((r) => setTimeout(r, 1600))]);
+      if (res === 'limit' || res === 'error') {
+        sheet.hidden = true; notify('error');
+        return toast(res === 'limit' ? 'Слишком много заказов, попробуй позже' : 'Не получилось оформить, попробуй ещё раз');
+      }
+      if (res === 'sold') {
         o.status = 'canceled'; saveOrders(); orderIds(o).forEach((i) => sold.add(i));
         notify('error'); toast('Кто-то уже купил вещь из заказа');
         return location.replace('#/');
