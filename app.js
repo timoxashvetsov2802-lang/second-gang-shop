@@ -2,14 +2,21 @@
   const tg = window.Telegram && window.Telegram.WebApp;
   const inTg = !!(tg && tg.initData);
   const $view = document.getElementById('view');
-  const $tabbar = document.getElementById('tabbar');
+  const $drawer = document.getElementById('drawer');
+  const $scrim = document.getElementById('scrim');
   const S = window.SHOP;
 
   if (tg) {
     tg.ready();
     tg.expand();
     try { tg.setHeaderColor('#000000'); tg.setBackgroundColor('#000000'); tg.setBottomBarColor && tg.setBottomBarColor('#000000'); } catch (e) {}
-    if (inTg) document.body.classList.add('tg');
+    if (inTg) {
+      document.body.classList.add('tg');
+      try {
+        if (tg.isVersionAtLeast('7.7')) tg.disableVerticalSwipes();
+        if (tg.isVersionAtLeast('8.0') && ['ios', 'android'].includes(tg.platform)) tg.requestFullscreen();
+      } catch (e) {}
+    }
     tg.BackButton.onClick(() => history.length > 1 ? history.back() : go('#/'));
   }
 
@@ -24,13 +31,19 @@
   const saveOrders = () => store.set('sg_orders', orders);
   const draft = store.get('sg_contact', {});
 
+  // Адрес сервера бота приходит параметром ?api= из кнопки бота (адрес туннеля меняется).
+  const apiParam = new URLSearchParams(location.search).get('api');
+  if (apiParam && /^https:\/\//.test(apiParam)) store.set('sg_api', apiParam);
+  const API = (apiParam && /^https:\/\//.test(apiParam) ? apiParam : store.get('sg_api', '')) || S.api || '';
+
   // ---------- helpers ----------
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const rub = (n) => n.toLocaleString('ru-RU').replace(/,/g, ' ') + ' ₽';
+  const rub = (n) => Number(n).toLocaleString('ru-RU').replace(/,/g, ' ') + ' ₽';
   const byId = (id) => window.PRODUCTS.find((p) => p.id === id);
   const go = (h) => { location.hash = h; };
   const haptic = (t = 'light') => { try { tg.HapticFeedback.impactOccurred(t); } catch (e) {} };
   const notify = (t) => { try { tg.HapticFeedback.notificationOccurred(t); } catch (e) {} };
+  const plural = (n, a, b, c) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? b : c; };
   const ago = (iso) => {
     const d = new Date(iso), now = new Date();
     const days = Math.floor((now - d) / 864e5);
@@ -42,7 +55,7 @@
   const toast = (t) => {
     const el = document.getElementById('toast');
     el.textContent = t; el.classList.add('show');
-    clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 1600);
+    clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 1800);
   };
   const copy = async (text, btn) => {
     try { await navigator.clipboard.writeText(text); }
@@ -51,7 +64,7 @@
       ta.select(); document.execCommand('copy'); ta.remove();
     }
     notify('success'); toast('Скопировано');
-    if (btn) { btn.classList.add('done'); btn.lastChild.textContent = 'Готово'; setTimeout(() => { btn.classList.remove('done'); btn.lastChild.textContent = 'Копировать'; }, 1500); }
+    if (btn) { btn.classList.add('done'); setTimeout(() => btn.classList.remove('done'), 1500); }
   };
   const openLink = (url) => {
     if (tg && inTg) { url.startsWith('https://t.me/') ? tg.openTelegramLink(url) : tg.openLink(url); }
@@ -61,6 +74,9 @@
   const I = {
     search: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
     heart: '<svg viewBox="0 0 24 24"><path d="M12 20.5s-8-4.9-8-11A4.5 4.5 0 0 1 12 6.6 4.5 4.5 0 0 1 20 9.5c0 6.1-8 11-8 11z"/></svg>',
+    bag: '<svg viewBox="0 0 24 24"><path d="M5 7h14l-1 14H6zM9 7V5a3 3 0 0 1 6 0v2"/></svg>',
+    home: '<svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
+    info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
     copy: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
     clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
     shield: '<svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>',
@@ -68,8 +84,20 @@
     arrow: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
     back: '<svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>',
     check: '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
+    cross: '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>',
     loader: '<svg viewBox="0 0 24 24" class="spin"><path d="M12 3a9 9 0 1 0 9 9"/></svg>',
-    box: '<svg viewBox="0 0 24 24"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/></svg>',
+    truck: '<svg viewBox="0 0 24 24"><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>',
+  };
+
+  // Статусы заказа: paid ставит приложение после оплаты, остальные — админ в боте.
+  const STATUS = {
+    awaiting: 'Ждёт оплаты', paid: 'Оплачен', accepted: 'Принят', packing: 'Собираем',
+    shipped: 'Отправлен', delivered: 'Доставлен', canceled: 'Отменён', expired: 'Не оплачен',
+  };
+  const FLOW = ['paid', 'packing', 'shipped', 'delivered'];
+  const TRACK_URL = {
+    cdek: (n) => `https://www.cdek.ru/ru/tracking/?order_id=${encodeURIComponent(n)}`,
+    post: (n) => `https://www.pochta.ru/tracking?barcode=${encodeURIComponent(n)}`,
   };
 
   const noPhoto = (p, big) => `
@@ -78,8 +106,9 @@
       <span class="np-cat">${esc(p.category)}</span>
       <span class="np-mark">SECOND GANG</span>
     </div>`;
-  const thumbImg = (p) => p.photos.length ? `<img src="${esc(p.photos[0])}" alt="">` : `<div class="noph-mini">${esc(p.brand.slice(0, 2).toUpperCase())}</div>`;
-
+  const initials = (b) => b.split(/[\s.]+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  const thumbImg = (p) => !p ? '<div class="noph-mini">SG</div>'
+    : p.photos.length ? `<img src="${esc(p.photos[0])}" alt="">` : `<div class="noph-mini">${esc(initials(p.brand))}</div>`;
   const favBtn = (id) => `<button class="fav ${favs.has(id) ? 'on' : ''}" data-fav="${esc(id)}" aria-label="В избранное">${I.heart}</button>`;
   const backLink = (href, label = 'Назад') => `<a class="back" href="${href}">${I.back}${label}</a>`;
 
@@ -88,10 +117,11 @@
       <div class="ph">
         ${p.photos.length ? `<img src="${esc(p.photos[0])}" alt="${esc(p.title)}" loading="lazy"><span class="cnt">${p.photos.length} фото</span>` : noPhoto(p)}
         ${favBtn(p.id)}
+        <span class="size">${esc(p.size)}</span>
       </div>
       <div class="price">${rub(p.price)}</div>
       <div class="title">${esc(p.title)}</div>
-      <div class="meta">${esc(p.size)} · ${esc(p.condition)}</div>
+      <div class="meta">${esc(p.condition)}</div>
     </a>`;
 
   // ---------- state ----------
@@ -99,33 +129,38 @@
   let query = '';
   let timer = null;
 
+  const activeOrders = () => orders.filter((o) => !['awaiting', 'expired', 'canceled', 'delivered'].includes(o.status)).length;
+
   // ---------- views ----------
   function home() {
     const list = window.PRODUCTS.filter((p) =>
       (cat === 'Все' || p.category === cat) &&
       (!query || (p.title + ' ' + p.brand).toLowerCase().includes(query.toLowerCase()))
     ).sort((a, b) => b.added.localeCompare(a.added));
+    const act = activeOrders();
 
     return `
       <header class="top">
         <div class="brand">
-          <img src="img/logo.jpg" alt="">
-          <div class="grow"><b>${esc(S.name)}</b><small>${esc(S.tagline)}</small></div>
+          <button class="avatar-btn" data-menu aria-label="Открыть меню"><img src="img/logo.jpg" alt="SECOND GANG SHOP"></button>
+          <div class="grow"><b>${esc(S.name)}</b><small>shop · ${window.PRODUCTS.length} ${plural(window.PRODUCTS.length, 'вещь', 'вещи', 'вещей')}</small></div>
+          <a class="icon-btn" href="#/orders" aria-label="Мои заказы">${I.bag}${act ? `<i class="num">${act}</i>` : ''}</a>
         </div>
         <label class="search">${I.search}<input id="q" type="search" placeholder="Поиск по бренду или вещи" value="${esc(query)}" autocomplete="off"></label>
       </header>
       <div class="chips">${window.CATEGORIES.map((c) => `<button class="chip ${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
       ${!query && cat === 'Все' ? `<div class="sale"><b>ARCHIVE &amp; GRAILS</b><span>Оригинальные вещи · проверка перед отправкой · оплата по СБП</span></div>` : ''}
       <div class="section-head"><h2>${query ? 'Результаты' : 'Свежее'}</h2><span>${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')}</span></div>
-      ${list.length ? `<div class="grid" id="grid">${list.map(card).join('')}</div>`
+      ${list.length ? `<div class="grid">${list.map(card).join('')}</div>`
         : `<div class="empty"><b>Ничего не нашли</b>Попробуй другой бренд или категорию</div>`}
+      <div class="swipe-hint">Свайп от левого края или тап по аватарке — меню</div>
     `;
   }
 
   function product(id) {
     const p = byId(id);
     if (!p) return notFound();
-    const pending = orders.find((o) => o.productId === id && o.status === 'paid');
+    const mine = orders.find((o) => o.productId === id && !['awaiting', 'expired', 'canceled'].includes(o.status));
     return `
       <div class="gallery">
         ${p.photos.length ? `
@@ -139,16 +174,16 @@
         <h1>${esc(p.title)}</h1>
         <div class="stamp">${ago(p.added)} · ${esc(p.category)}</div>
         <div class="tags">
-          <span class="tag inv">${pending ? 'Ты купил' : 'В наличии'}</span>
+          <span class="tag inv">${mine ? 'Твой заказ' : 'В наличии'}</span>
+          <span class="tag">Размер ${esc(p.size)}</span>
           <span class="tag">${esc(p.brand)}</span>
-          <span class="tag">Оригинал</span>
         </div>
       </div>
       <div class="block">
         <h3>Характеристики</h3>
         <dl class="specs">
+          <dt>Размер</dt><dd>${esc(p.size)}${p.sizeNote ? `<br><small class="sub">${esc(p.sizeNote)}</small>` : ''}</dd>
           <dt>Состояние</dt><dd>${esc(p.condition)}</dd>
-          <dt>Размер</dt><dd>${esc(p.size)}${p.sizeNote ? `<br><small style="color:var(--muted);font-weight:400">${esc(p.sizeNote)}</small>` : ''}</dd>
           <dt>Бренд</dt><dd>${esc(p.brand)}</dd>
           <dt>Категория</dt><dd>${esc(p.category)}</dd>
         </dl>
@@ -166,44 +201,62 @@
       </div>
       <div class="actionbar">
         <button class="btn ghost ${favs.has(p.id) ? 'on' : ''}" data-fav="${esc(p.id)}" aria-label="В избранное">${I.heart}</button>
-        <button class="btn" id="buy" ${pending ? 'disabled' : ''}>${pending ? 'Оплачено' : 'Купить · ' + rub(p.price)}</button>
+        ${mine ? `<a class="btn" href="#/order/${esc(mine.id)}">Мой заказ · ${esc(STATUS[mine.status])}</a>`
+          : `<button class="btn" id="buy">Купить · ${rub(p.price)}</button>`}
       </div>
     `;
   }
+
+  const fmtPhone = (digits) => {
+    const d = digits.slice(0, 10);
+    let s = '';
+    if (d.length) s = '(' + d.slice(0, 3);
+    if (d.length >= 3) s += ') ';
+    if (d.length > 3) s += d.slice(3, 6);
+    if (d.length > 6) s += '-' + d.slice(6, 8);
+    if (d.length > 8) s += '-' + d.slice(8, 10);
+    return s;
+  };
 
   function checkout(id) {
     const p = byId(id);
     if (!p) return notFound();
     const d = draft;
-    const del = d.delivery || S.delivery[0].id;
+    const del = S.delivery.some((x) => x.id === d.delivery) ? d.delivery : S.delivery[0].id;
     return `
       <div class="ptop">${backLink('#/p/' + esc(p.id))}<h1>Оформление</h1><p>Шаг 1 из 2 — данные для доставки</p></div>
       <div class="steps"><i class="on"></i><i></i></div>
       <div class="block">
         <div class="mini">
           ${thumbImg(p)}
-          <div class="grow"><b>${esc(p.title)}</b><small>${esc(p.size)} · ${esc(p.condition)}</small></div>
+          <div class="grow"><b>${esc(p.title)}</b><small>Размер ${esc(p.size)} · ${esc(p.condition)}</small></div>
           <div class="p">${rub(p.price)}</div>
         </div>
       </div>
       <div class="block">
         <h3>Получатель</h3>
-        <label class="field" data-f="name"><span>ФИО</span><input id="f-name" value="${esc(d.name || (tg && tg.initDataUnsafe.user ? [tg.initDataUnsafe.user.first_name, tg.initDataUnsafe.user.last_name].filter(Boolean).join(' ') : ''))}" placeholder="Иванов Иван" autocomplete="name"></label>
-        <label class="field" data-f="phone"><span>Телефон</span><input id="f-phone" type="tel" value="${esc(d.phone || '')}" placeholder="+7 900 123-45-67" autocomplete="tel"></label>
+        <label class="field" data-f="name">
+          <span>ФИО как в паспорте</span>
+          <input id="f-name" value="${esc(d.name || '')}" placeholder="Иванов Иван Иванович" autocomplete="name" autocapitalize="words">
+          <em class="hint">Фамилия, имя и отчество кириллицей — их проверят при выдаче</em>
+        </label>
+        <label class="field" data-f="phone">
+          <span>Телефон</span>
+          <div class="phone"><b>+7</b><input id="f-phone" type="tel" inputmode="numeric" value="${esc(fmtPhone((d.phoneDigits || '')))}" placeholder="(900) 123-45-67" autocomplete="tel-national"></div>
+          <em class="hint">Только российский мобильный: +7 и 10 цифр, начинается с 9</em>
+        </label>
       </div>
       <div class="block">
         <h3>Доставка</h3>
         <div class="opts" id="delivery">
           ${S.delivery.map((x) => `<button class="opt ${x.id === del ? 'on' : ''}" data-del="${x.id}"><span class="r"></span><span class="grow"><b>${esc(x.title)}</b><small>${esc(x.note)}</small></span></button>`).join('')}
         </div>
-        <label class="field" data-f="addr" style="margin-top:12px"><span id="addr-lbl">Город и адрес ПВЗ</span><input id="f-addr" value="${esc(d.addr || '')}" placeholder="Москва, ул. Пример, 1"></label>
+        <label class="field" data-f="addr" style="margin-top:12px">
+          <span id="addr-lbl">Город и адрес пункта выдачи</span>
+          <input id="f-addr" value="${esc(d.addr || '')}" placeholder="Москва, ул. Тверская, 1">
+          <em class="hint">Укажи город и точный адрес</em>
+        </label>
         <label class="field"><span>Комментарий</span><textarea id="f-comment" rows="2" placeholder="Необязательно"></textarea></label>
-      </div>
-      <div class="block">
-        <h3>Способ оплаты</h3>
-        <div class="opts">
-          <div class="opt on"><span class="sbp-mark">СБП</span><span class="grow"><b>Система быстрых платежей</b><small>оплата в приложении твоего банка</small></span><span class="r"></span></div>
-        </div>
       </div>
       <div class="block">
         <div class="total"><span>Товар</span><b>${rub(p.price)}</b></div>
@@ -217,9 +270,9 @@
   function pay(orderId) {
     const o = orders.find((x) => x.id === orderId);
     if (!o) return notFound();
-    if (o.status !== 'awaiting') return done(orderId);
+    if (o.status !== 'awaiting') return orderView(orderId);
     return `
-      <div class="ptop">${backLink('#/checkout/' + esc(o.productId))}<h1>Оплата СБП</h1><p>Шаг 2 из 2 — выбери банк и подтверди платёж</p></div>
+      <div class="ptop">${backLink('#/checkout/' + esc(o.productId))}<h1>Оплата</h1><p>Шаг 2 из 2 — оплати заказ через СБП</p></div>
       <div class="steps"><i class="on"></i><i class="on"></i></div>
       <div class="paybox">
         <div class="lbl">К оплате</div>
@@ -228,54 +281,55 @@
         <div class="timer">${I.clock}<span>Вещь закреплена за тобой: <b id="left">--:--</b></span></div>
       </div>
       <div class="block">
-        <h3>Выбери свой банк</h3>
-        <div class="banks">
-          ${S.banks.map((b) => `<button class="bank" data-bank="${esc(b)}"><span class="bank-ic">${esc(b[0])}</span><span>${esc(b)}</span></button>`).join('')}
+        <div class="mini">
+          ${thumbImg(byId(o.productId))}
+          <div class="grow"><b>${esc(o.name)}</b><small>${esc(o.phone)}</small><small>${esc(o.delivery)} · ${esc(o.addr)}</small></div>
         </div>
       </div>
-      <div class="block qrblock">
-        <div class="qr">${qr(o.id)}</div>
-        <div><b>Или отсканируй QR</b><small>камерой телефона, если открыл магазин с компьютера</small></div>
-      </div>
-      ${S.demoPayment ? `<div class="block demo"><div class="note">${I.shield}<div><b>Демо-режим.</b> Оплата имитируется, деньги не списываются. Реальный эквайринг СБП подключим позже.</div></div></div>` : ''}
+      ${S.demoPayment ? `<div class="block demo"><div class="note">${I.shield}<div><b>Демо-режим.</b> Оплата имитируется, деньги не списываются.</div></div></div>` : ''}
+      <div class="actionbar"><button class="btn sbp-btn" id="sbp"><span class="sbp-logo">СБП</span>Оплатить через СБП</button></div>
       <div class="sheet" id="sheet" hidden><div class="sheet-card" id="sheet-card"></div></div>
     `;
   }
 
-  // Псевдо-QR: детерминированный узор из номера заказа (в демо не ведёт на платёж).
-  function qr(seed) {
-    const n = 25, c = 6;
-    let h = 0; for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    const rnd = () => ((h = (h * 1103515245 + 12345) >>> 0) >>> 16) & 1;
-    const finder = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => x >= fx && x < fx + 7 && y >= fy && y < fy + 7);
-    const fOn = (x, y) => { for (const [fx, fy] of [[0, 0], [n - 7, 0], [0, n - 7]]) { const dx = x - fx, dy = y - fy; if (dx >= 0 && dx < 7 && dy >= 0 && dy < 7) return dx === 0 || dy === 0 || dx === 6 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4); } return false; };
-    let r = '';
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (finder(x, y) ? fOn(x, y) : rnd()) r += `<rect x="${x * c}" y="${y * c}" width="${c}" height="${c}"/>`;
-    return `<svg viewBox="-12 -12 ${n * c + 24} ${n * c + 24}"><rect x="-12" y="-12" width="${n * c + 24}" height="${n * c + 24}" fill="#fff"/><g fill="#000">${r}</g></svg>`;
-  }
-
-  function done(orderId) {
+  function orderView(orderId) {
     const o = orders.find((x) => x.id === orderId);
     if (!o) return notFound();
-    const expired = o.status === 'expired';
+    const bad = ['expired', 'canceled'].includes(o.status);
+    const idx = FLOW.indexOf(o.status === 'accepted' ? 'paid' : o.status);
+    const trackUrl = o.track && TRACK_URL[o.deliveryId] ? TRACK_URL[o.deliveryId](o.track) : '';
     return `
       <div class="status fade">
-        <div class="ic">${expired ? I.clock : I.check}</div>
-        <h1>${expired ? 'Время вышло' : 'Оплачено'}</h1>
-        <p>${expired ? 'Заказ не был оплачен вовремя. Оформи его заново, если вещь ещё в наличии.'
-          : `Заказ ${esc(o.id)} на ${rub(o.total)} оплачен через СБП. Менеджер напишет тебе в Telegram, чтобы согласовать отправку.`}</p>
+        <div class="ic">${bad ? I.cross : o.status === 'shipped' ? I.truck : I.check}</div>
+        <h1>${esc(STATUS[o.status] || o.status)}</h1>
+        <p>${bad ? (o.status === 'expired' ? 'Заказ не был оплачен вовремя. Оформи его заново, если вещь ещё в наличии.' : 'Заказ отменён. Если есть вопросы — напиши менеджеру.')
+          : o.status === 'shipped' ? `Заказ ${esc(o.id)} в пути. Трек-номер ниже.`
+          : o.status === 'delivered' ? `Заказ ${esc(o.id)} доставлен. Спасибо, что с нами!`
+          : `Заказ ${esc(o.id)} на ${rub(o.total)}. Статус обновится здесь и придёт сообщением от бота.`}</p>
       </div>
+      ${bad ? '' : `
+      <div class="block">
+        <h3>Где заказ</h3>
+        <ol class="track">
+          ${FLOW.map((s, i) => `<li class="${i <= idx ? 'on' : ''} ${i === idx ? 'now' : ''}"><i></i><span>${esc(STATUS[s])}</span></li>`).join('')}
+        </ol>
+        ${o.track ? `
+        <div class="req first trackno">
+          <div class="grow"><small>Трек-номер · ${esc(o.delivery)}</small><b>${esc(o.track)}</b></div>
+          <button class="copy" data-copy="${esc(o.track)}">${I.copy}<span>Копировать</span></button>
+        </div>
+        ${trackUrl ? `<a class="btn outline wide" href="${esc(trackUrl)}" data-ext>${I.truck}Отследить на сайте ${esc(o.delivery)}</a>` : ''}` : `<div class="sub" style="margin-top:4px">Трек-номер появится, когда заказ передадут в ${esc(o.delivery)}</div>`}
+      </div>`}
       <div class="block">
         <div class="order">
           ${thumbImg(byId(o.productId))}
-          <div class="grow"><b>${esc(o.title)}</b><small>${esc(o.delivery)} · ${esc(o.addr)}</small></div>
+          <div class="grow"><b>${esc(o.title)}</b><small>${esc(o.name)}</small><small>${esc(o.delivery)} · ${esc(o.addr)}</small></div>
           <b>${rub(o.total)}</b>
         </div>
       </div>
-      ${expired ? '' : `<div class="block"><div class="note">${I.chat}<div>Вопрос по заказу — жми «Написать менеджеру», номер заказа подставится сам.</div></div></div>`}
       <div class="actionbar">
-        ${expired ? `<a class="btn" href="#/p/${esc(o.productId)}">К товару</a>`
-          : `<button class="btn outline" data-manager="${esc(o.id)}">Написать менеджеру</button><a class="btn" href="#/">В каталог</a>`}
+        ${bad ? `<a class="btn" href="#/p/${esc(o.productId)}">К товару</a>`
+          : `<button class="btn outline" data-manager="${esc(o.id)}">Менеджер</button><a class="btn" href="#/">В каталог</a>`}
       </div>
     `;
   }
@@ -283,7 +337,7 @@
   function favorites() {
     const list = window.PRODUCTS.filter((p) => favs.has(p.id));
     return `
-      <div class="ptop"><h1>Избранное</h1><p>${list.length ? list.length + ' ' + plural(list.length, 'вещь', 'вещи', 'вещей') : 'Жми на сердечко, чтобы не потерять вещь'}</p></div>
+      <div class="ptop">${backLink('#/')}<h1>Избранное</h1><p>${list.length ? list.length + ' ' + plural(list.length, 'вещь', 'вещи', 'вещей') : 'Жми на сердечко, чтобы не потерять вещь'}</p></div>
       ${list.length ? `<div class="grid" style="padding-top:12px">${list.map(card).join('')}</div>`
         : `<div class="empty"><b>Пока пусто</b>Сохраняй вещи, которые понравились<br><a class="btn" href="#/">В каталог</a></div>`}
     `;
@@ -291,46 +345,116 @@
 
   function myOrders() {
     expireOld();
-    const label = { awaiting: 'ждёт оплаты', paid: 'оплачен', expired: 'отменён' };
     return `
-      <div class="ptop"><h1>Заказы</h1><p>История покупок и статусы</p></div>
+      <div class="ptop">${backLink('#/')}<h1>Заказы</h1><p>Статусы обновляются автоматически</p></div>
       ${orders.length ? `<div style="padding-top:12px">${orders.slice().reverse().map((o) => `
-        <a class="block order" style="display:flex" href="${o.status === 'awaiting' ? '#/pay/' : '#/done/'}${esc(o.id)}">
+        <a class="block order" href="${o.status === 'awaiting' ? '#/pay/' : '#/order/'}${esc(o.id)}">
           ${thumbImg(byId(o.productId))}
-          <div class="grow"><b>${esc(o.title)}</b><small>${esc(o.id)} · ${rub(o.total)}</small><small>${ago(o.createdAt)}</small></div>
-          <span class="badge ${o.status === 'paid' ? 'inv' : ''}">${label[o.status]}</span>
+          <div class="grow"><b>${esc(o.title)}</b><small>${esc(o.id)} · ${rub(o.total)}</small><small>${o.track ? 'трек ' + esc(o.track) : ago(o.createdAt)}</small></div>
+          <span class="badge ${['awaiting', 'expired', 'canceled'].includes(o.status) ? '' : 'inv'}">${esc(STATUS[o.status] || o.status)}</span>
         </a>`).join('')}</div>`
         : `<div class="empty"><b>Заказов нет</b>Здесь появятся твои покупки<br><a class="btn" href="#/">В каталог</a></div>`}
     `;
   }
 
   function about() {
-    const L = S.links;
-    const row = (href, title, sub) => `<a href="${esc(href)}" data-ext><div class="grow">${esc(title)}<small>${esc(sub)}</small></div>${I.arrow}</a>`;
     return `
-      <div class="hero"><img src="img/logo.jpg" alt=""><h1>${esc(S.name)}</h1><p>${esc(S.tagline)}</p></div>
-      <div class="block links">
-        ${row('https://t.me/' + S.manager, 'Менеджер', '@' + S.manager)}
-        ${row(L.channel, 'Канал', 't.me/secondgangg')}
-        ${row(L.stock, 'Наличие', 't.me/secondgang2')}
-        ${row(L.feedback, 'Отзывы', 't.me/gangfeedback')}
-        ${row(L.vk, 'ВКонтакте', 'vk.com/1brand_magazine')}
-        ${row(L.tiktok, 'TikTok', '@second.gang')}
-      </div>
+      <div class="ptop">${backLink('#/')}</div>
+      <div class="hero"><img src="img/logo.jpg" alt=""><h1>${esc(S.name)}</h1><p>архивные вещи · оплата по СБП</p></div>
+      <div class="block links">${linkRows()}</div>
       <div class="block">
         <h3>Как купить</h3>
         <ol class="howto">
           <li>Выбери вещь и нажми «Купить»</li>
-          <li>Укажи данные для доставки</li>
-          <li>Выбери свой банк и подтверди оплату по СБП</li>
-          <li>Менеджер напишет в Telegram и отправит заказ</li>
+          <li>Укажи ФИО как в паспорте, телефон и пункт выдачи</li>
+          <li>Нажми «Оплатить через СБП» и подтверди платёж в банке</li>
+          <li>Следи за заказом во вкладке «Заказы» — там появится трек-номер</li>
         </ol>
       </div>
     `;
   }
 
+  const linkRows = () => {
+    const L = S.links;
+    const row = (href, title, sub) => `<a href="${esc(href)}" data-ext><div class="grow">${esc(title)}<small>${esc(sub)}</small></div>${I.arrow}</a>`;
+    return [
+      row('https://t.me/' + S.manager, 'Менеджер', '@' + S.manager),
+      row(L.channel, 'Канал', 't.me/secondgangg'),
+      row(L.stock, 'Наличие', 't.me/secondgang2'),
+      row(L.feedback, 'Отзывы', 't.me/gangfeedback'),
+      row(L.vk, 'ВКонтакте', 'vk.com/1brand_magazine'),
+      row(L.tiktok, 'TikTok', '@second.gang'),
+    ].join('');
+  };
+
   const notFound = () => `<div class="empty"><b>Не найдено</b>Возможно, вещь уже продана<br><a class="btn" href="#/">В каталог</a></div>`;
-  const plural = (n, a, b, c) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? b : c; };
+
+  // ---------- drawer (свайп от левого края / тап по аватарке) ----------
+  function drawerHtml() {
+    const route = (location.hash.split('/')[1] || '');
+    const item = (href, icon, label, r, count) =>
+      `<a href="${href}" class="${route === r ? 'on' : ''}">${icon}<span class="grow">${label}</span>${count ? `<i class="num">${count}</i>` : ''}</a>`;
+    return `
+      <div class="d-head">
+        <img src="img/logo.jpg" alt="SECOND GANG SHOP">
+        <b>${esc(S.name)}</b>
+        <small>shop</small>
+      </div>
+      <nav class="d-nav">
+        ${item('#/', I.home, 'Каталог', '')}
+        ${item('#/fav', I.heart, 'Избранное', 'fav', favs.size)}
+        ${item('#/orders', I.bag, 'Мои заказы', 'orders', activeOrders())}
+        ${item('#/about', I.info, 'О магазине', 'about')}
+      </nav>
+      <div class="d-links links">${linkRows()}</div>
+      ${S.demoPayment ? '<div class="d-foot">демо-версия · оплата не списывается</div>' : ''}
+    `;
+  }
+  let drawerOpen = false;
+  function setDrawer(open, instant) {
+    drawerOpen = open;
+    if (open) $drawer.innerHTML = drawerHtml();
+    document.body.classList.toggle('drawer-open', open);
+    $drawer.style.transition = $scrim.style.transition = instant ? 'none' : '';
+    $drawer.style.transform = '';
+    $scrim.style.opacity = '';
+    if (open) haptic();
+  }
+  $scrim.addEventListener('click', () => setDrawer(false));
+  $drawer.addEventListener('click', (e) => { if (e.target.closest('a')) setDrawer(false); });
+
+  (() => {
+    let sx = 0, sy = 0, dx = 0, tracking = false, decided = false;
+    const W = () => $drawer.offsetWidth;
+    document.addEventListener('touchstart', (e) => {
+      const t = e.touches[0];
+      sx = t.clientX; sy = t.clientY; dx = 0; decided = false;
+      tracking = drawerOpen ? true : sx < 28 && !document.getElementById('sheet')?.offsetParent;
+      if (tracking && !drawerOpen) $drawer.innerHTML = drawerHtml();
+    }, { passive: true });
+    document.addEventListener('touchmove', (e) => {
+      if (!tracking) return;
+      const t = e.touches[0];
+      const mx = t.clientX - sx, my = t.clientY - sy;
+      if (!decided) {
+        if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+        decided = true;
+        if (Math.abs(my) > Math.abs(mx) || (drawerOpen && mx > 0)) { tracking = false; return; }
+        $drawer.style.transition = $scrim.style.transition = 'none';
+      }
+      dx = mx;
+      const x = drawerOpen ? Math.min(0, dx) : Math.min(0, -W() + dx);
+      $drawer.style.transform = `translateX(${x}px)`;
+      $scrim.style.opacity = String(1 + x / W());
+      $scrim.style.pointerEvents = 'auto';
+    }, { passive: true });
+    document.addEventListener('touchend', () => {
+      if (!tracking || !decided) { tracking = false; return; }
+      tracking = false;
+      $scrim.style.pointerEvents = '';
+      setDrawer(drawerOpen ? dx > -60 : dx > 60);
+    });
+  })();
 
   // ---------- orders ----------
   function expireOld() {
@@ -341,21 +465,45 @@
   }
 
   function managerText(o) {
-    return `Здравствуйте! Вопрос по заказу ${o.id} (оплачен по СБП)\n` +
+    return `Здравствуйте! Вопрос по заказу ${o.id}\n` +
       `${o.title} — ${rub(o.total)}\n` +
       `Получатель: ${o.name}, ${o.phone}\n` +
-      `Доставка: ${o.delivery}, ${o.addr}` + (o.comment ? `\nКомментарий: ${o.comment}` : '');
+      `Доставка: ${o.delivery}, ${o.addr}` + (o.track ? `\nТрек: ${o.track}` : '');
   }
 
-  function notifyManager(o) {
-    // Если подключён сервер бота (SHOP.api) — заказ уходит админу автоматически.
-    if (S.api) {
-      fetch(S.api + '/order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ order: o, initData: tg ? tg.initData : '' }),
-      }).catch(() => {});
-    }
+  const apiFetch = (path, opts = {}) => fetch(API + path, {
+    ...opts,
+    headers: { 'Content-Type': 'application/json', 'X-Init-Data': tg ? tg.initData : '', ...(opts.headers || {}) },
+  });
+
+  function sendOrder(o) {
+    if (!API) return;
+    apiFetch('/order', { method: 'POST', body: JSON.stringify({ order: o }) }).catch(() => {});
+  }
+
+  // Подтягиваем статусы и трек-номера, которые админ выставил в боте.
+  let syncing = false;
+  async function syncOrders() {
+    if (!API || !inTg || syncing) return;
+    syncing = true;
+    try {
+      const r = await apiFetch('/orders');
+      if (!r.ok) return;
+      const remote = await r.json();
+      let changed = false;
+      for (const ro of remote) {
+        const lo = orders.find((x) => x.id === ro.id);
+        if (lo) {
+          if (lo.status !== ro.status || lo.track !== ro.track) { lo.status = ro.status; lo.track = ro.track; changed = true; }
+        } else { orders.push(ro); changed = true; }
+      }
+      if (changed) {
+        saveOrders();
+        const route = location.hash.split('/')[1];
+        if (['orders', 'order', 'p', ''].includes(route || '')) { render.keepScroll = true; render(); }
+      }
+    } catch (e) { /* сервер недоступен — показываем то, что есть */ }
+    finally { syncing = false; }
   }
 
   // ---------- router ----------
@@ -363,39 +511,28 @@
     clearInterval(timer);
     const h = location.hash.replace(/^#/, '') || '/';
     const [, route, arg] = h.split('/');
-    const tabRoutes = { '': 'home', fav: 'fav', orders: 'orders', about: 'about' };
-    const tab = tabRoutes[route ?? ''];
 
     let html;
     switch (route) {
       case 'p': html = product(arg); break;
       case 'checkout': html = checkout(arg); break;
       case 'pay': html = pay(arg); break;
-      case 'done': html = done(arg); break;
+      case 'order': case 'done': html = orderView(arg); break;
       case 'fav': html = favorites(); break;
       case 'orders': html = myOrders(); break;
       case 'about': html = about(); break;
       default: html = home();
     }
     $view.innerHTML = html;
-    document.body.classList.toggle('no-tabs', !tab);
-    $tabbar.querySelectorAll('a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
-    updateBadge();
-    if (tg) tab ? tg.BackButton.hide() : tg.BackButton.show();
-    if (route !== '' || !render.keepScroll) window.scrollTo(0, 0);
+    document.body.classList.toggle('has-bar', !!$view.querySelector('.actionbar'));
+    if (tg) route ? tg.BackButton.show() : tg.BackButton.hide();
+    if (!render.keepScroll) window.scrollTo(0, 0);
     render.keepScroll = false;
 
     if (route === 'p') bindGallery();
     if (route === 'pay') bindPay(arg);
     if (route === 'checkout') bindCheckout(arg);
     if (!route) bindHome();
-  }
-
-  function updateBadge() {
-    const a = $tabbar.querySelector('[data-tab="fav"]');
-    let n = a.querySelector('.num');
-    if (favs.size) { if (!n) { n = document.createElement('i'); n.className = 'num'; a.appendChild(n); } n.textContent = favs.size; }
-    else if (n) n.remove();
   }
 
   function bindHome() {
@@ -410,6 +547,7 @@
 
   function bindGallery() {
     const slides = document.getElementById('slides');
+    if (!slides) return;
     const dots = [...document.querySelectorAll('#dots i')];
     const thumbs = [...document.querySelectorAll('#thumbs img')];
     slides.addEventListener('scroll', () => {
@@ -420,28 +558,60 @@
     thumbs.forEach((t) => t.addEventListener('click', () => slides.scrollTo({ left: slides.clientWidth * +t.dataset.i, behavior: 'smooth' })));
   }
 
+  // ФИО: каждое слово с заглавной, только кириллица и дефис, 2–3 слова.
+  const NAME_RE = /^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?( [А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?){1,2}$/;
+  const normName = (s) => s.replace(/\s+/g, ' ').trim().split(' ')
+    .map((w) => w.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('-')).join(' ');
+
   function bindCheckout(id) {
     const p = byId(id);
     const lbl = document.getElementById('addr-lbl');
-    const setLbl = (d) => { lbl.textContent = d === 'meet' ? 'Город и удобное место встречи' : d === 'post' ? 'Город, адрес и индекс' : 'Город и адрес ПВЗ'; };
-    let del = draft.delivery || S.delivery[0].id;
+    const setLbl = (d) => { lbl.textContent = d === 'post' ? 'Город, адрес и индекс' : 'Город и адрес пункта выдачи'; };
+    let del = S.delivery.some((x) => x.id === draft.delivery) ? draft.delivery : S.delivery[0].id;
     setLbl(del);
     document.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => {
       del = b.dataset.del; haptic();
       document.querySelectorAll('[data-del]').forEach((x) => x.classList.toggle('on', x === b));
       setLbl(del);
     }));
+
+    const name = document.getElementById('f-name');
+    name.addEventListener('input', () => { name.value = name.value.replace(/[^А-Яа-яЁё\s-]/g, ''); });
+    name.addEventListener('blur', () => { name.value = normName(name.value); });
+
+    const phone = document.getElementById('f-phone');
+    phone.addEventListener('input', () => {
+      let d = phone.value.replace(/\D/g, '');
+      if (d.length > 10 && (d[0] === '7' || d[0] === '8')) d = d.slice(1);
+      phone.value = fmtPhone(d);
+    });
+
+    const setErr = (f, bad) => document.querySelector(`.field[data-f="${f}"]`).classList.toggle('err', bad);
     document.getElementById('to-pay').addEventListener('click', () => {
-      const v = (k) => document.getElementById('f-' + k).value.trim();
-      const vals = { name: v('name'), phone: v('phone'), addr: v('addr') };
-      const bad = Object.keys(vals).filter((k) => k === 'phone' ? vals.phone.replace(/\D/g, '').length < 10 : vals[k].length < 2);
-      document.querySelectorAll('.field[data-f]').forEach((f) => f.classList.toggle('err', bad.includes(f.dataset.f)));
-      if (bad.length) { notify('error'); toast('Заполни выделенные поля'); return; }
-      Object.assign(draft, vals, { delivery: del }); store.set('sg_contact', draft);
+      name.value = normName(name.value);
+      const digits = phone.value.replace(/\D/g, '');
+      const addr = document.getElementById('f-addr').value.trim();
+      const errs = {
+        name: !NAME_RE.test(name.value),
+        phone: !/^9\d{9}$/.test(digits),
+        addr: addr.length < 8 || !/\d/.test(addr),
+      };
+      Object.entries(errs).forEach(([f, b]) => setErr(f, b));
+      const first = Object.keys(errs).find((k) => errs[k]);
+      if (first) {
+        notify('error');
+        toast({ name: 'Проверь ФИО', phone: 'Проверь номер телефона', addr: 'Укажи полный адрес' }[first]);
+        document.querySelector(`.field[data-f="${first}"]`).scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      const phoneStr = '+7 ' + fmtPhone(digits);
+      Object.assign(draft, { name: name.value, phoneDigits: digits, addr, delivery: del }); store.set('sg_contact', draft);
       const o = {
-        id: 'SG-' + String(Date.now()).slice(-5),
-        productId: p.id, title: p.title, total: p.price,
-        ...vals, delivery: S.delivery.find((x) => x.id === del).title, comment: v('comment'),
+        id: 'SG-' + Math.random().toString(36).slice(2, 7).toUpperCase(),
+        productId: p.id, title: p.title, size: p.size, total: p.price,
+        name: name.value, phone: phoneStr, addr,
+        deliveryId: del, delivery: S.delivery.find((x) => x.id === del).title,
+        comment: document.getElementById('f-comment').value.trim(),
         status: 'awaiting', createdAt: new Date().toISOString(),
       };
       orders = orders.filter((x) => !(x.productId === p.id && x.status === 'awaiting'));
@@ -458,24 +628,24 @@
     const tick = () => {
       const s = Math.max(0, Math.round((end - Date.now()) / 1000));
       left.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
-      if (!s) { o.status = 'expired'; saveOrders(); location.replace('#/done/' + o.id); }
+      if (!s) { o.status = 'expired'; saveOrders(); location.replace('#/order/' + o.id); }
     };
     tick(); timer = setInterval(tick, 1000);
+
     const sheet = document.getElementById('sheet');
     const card = document.getElementById('sheet-card');
     const step = (html) => { card.innerHTML = html; card.classList.remove('fade'); void card.offsetWidth; card.classList.add('fade'); };
-    const head = (bank) => `<div class="sheet-bank"><span class="bank-ic">${esc(bank[0])}</span>${esc(bank)}</div>`;
-    const wait = (bank, text) => step(`${head(bank)}<div class="sheet-wait">${I.loader}<span>${text}</span></div>`);
+    const head = `<div class="sheet-bank"><span class="sbp-logo">СБП</span>Система быстрых платежей</div>`;
+    const wait = (text) => step(`${head}<div class="sheet-wait">${I.loader}<span>${text}</span></div>`);
 
-    document.querySelectorAll('[data-bank]').forEach((b) => b.addEventListener('click', () => {
-      const bank = b.dataset.bank;
+    document.getElementById('sbp').addEventListener('click', () => {
       haptic('medium');
       sheet.hidden = false;
-      wait(bank, 'Открываем приложение банка…');
+      wait('Переходим в приложение банка…');
       setTimeout(() => {
         step(`
-          ${head(bank)}
-          <div class="sheet-title">Оплата по QR · СБП</div>
+          ${head}
+          <div class="sheet-title">Подтверждение платежа</div>
           <div class="sheet-amt">${rub(o.total)}</div>
           <dl class="specs">
             <dt>Получатель</dt><dd>${esc(S.name)}</dd>
@@ -483,26 +653,26 @@
             <dt>Комиссия</dt><dd>0 ₽</dd>
           </dl>
           ${S.demoPayment ? '<div class="sheet-demo">ДЕМО · деньги не списываются</div>' : ''}
-          <button class="btn" id="confirm">Оплатить ${rub(o.total)}</button>
+          <button class="btn" id="confirm">Подтвердить</button>
           <button class="btn outline" id="cancel">Отмена</button>`);
         document.getElementById('cancel').onclick = () => { sheet.hidden = true; };
         document.getElementById('confirm').onclick = () => {
           haptic('heavy');
-          wait(bank, 'Проводим платёж…');
+          wait('Проводим платёж…');
           setTimeout(() => {
-            o.status = 'paid'; o.bank = bank; o.paidAt = new Date().toISOString(); saveOrders();
-            notify('success'); notifyManager(o);
-            location.replace('#/done/' + o.id);
+            o.status = 'paid'; o.paidAt = new Date().toISOString(); saveOrders();
+            notify('success'); sendOrder(o);
+            location.replace('#/order/' + o.id);
           }, 1400);
         };
       }, 1100);
-    }));
+    });
     sheet.addEventListener('click', (e) => { if (e.target === sheet && !card.querySelector('.sheet-wait')) sheet.hidden = true; });
   }
 
   // ---------- global clicks ----------
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-fav],[data-cat],[data-copy],[data-ask],[data-manager],#buy,[data-ext]');
+    const t = e.target.closest('[data-fav],[data-cat],[data-copy],[data-ask],[data-manager],[data-menu],#buy,[data-ext]');
     if (!t) return;
     if (t.dataset.fav) {
       e.preventDefault(); e.stopPropagation();
@@ -511,8 +681,9 @@
       saveFavs(); haptic();
       document.querySelectorAll(`[data-fav="${CSS.escape(id)}"]`).forEach((b) => b.classList.toggle('on', favs.has(id)));
       toast(favs.has(id) ? 'Добавлено в избранное' : 'Убрано из избранного');
-      updateBadge();
       if (location.hash === '#/fav') render();
+    } else if (t.hasAttribute('data-menu')) {
+      setDrawer(true);
     } else if (t.dataset.cat) {
       cat = t.dataset.cat; haptic(); render.keepScroll = true; render();
     } else if (t.dataset.copy) {
@@ -520,7 +691,7 @@
     } else if (t.dataset.ask) {
       e.preventDefault();
       const p = byId(t.dataset.ask);
-      openLink(`https://t.me/${S.manager}?text=${encodeURIComponent('Здравствуйте! Интересует ' + p.title + ' за ' + rub(p.price))}`);
+      openLink(`https://t.me/${S.manager}?text=${encodeURIComponent('Здравствуйте! Интересует ' + p.title + ' (' + p.size + ') за ' + rub(p.price))}`);
     } else if (t.dataset.manager) {
       const o = orders.find((x) => x.id === t.dataset.manager);
       openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(managerText(o))}`);
@@ -531,7 +702,10 @@
     }
   });
 
-  window.addEventListener('hashchange', render);
+  window.addEventListener('hashchange', () => { if (drawerOpen) setDrawer(false, true); render(); syncOrders(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncOrders(); });
+  setInterval(() => { if (/^#\/(order|orders)/.test(location.hash)) syncOrders(); }, 20000);
   expireOld();
   render();
+  syncOrders();
 })();
