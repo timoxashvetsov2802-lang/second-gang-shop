@@ -36,15 +36,22 @@ const TRACK_URL = {
 };
 
 // ---------- Telegram API ----------
+// Сбой сети не должен ронять бота: ошибку логируем и возвращаем undefined, вызывающий код это переживает.
 const api = async (method, body) => {
-  const r = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body || {}),
-  });
-  const j = await r.json();
-  if (!j.ok) console.error(method, j.description);
-  return j.result;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+      signal: AbortSignal.timeout(method === 'getUpdates' ? 70e3 : 20e3),
+    });
+    const j = await r.json();
+    if (!j.ok) console.error(method, j.description);
+    return j.result;
+  } catch (e) {
+    console.error(new Date().toISOString(), method, 'сеть:', e.cause?.code || e.message);
+    return undefined;
+  }
 };
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
@@ -312,7 +319,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => console.log('listening on', PORT));
-setup().then(poll);
+setup().catch((e) => console.error('setup', e)).then(poll);
+process.on('unhandledRejection', (e) => console.error('unhandled', e));
 
 if (process.env.TUNNEL === '1' && !process.env.PUBLIC_URL) {
   startTunnel(PORT, (url) => {
