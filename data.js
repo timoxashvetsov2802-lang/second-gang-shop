@@ -17,7 +17,7 @@ window.SHOP = {
   banks: ['Сбербанк', 'Т-Банк', 'Альфа-Банк', 'ВТБ', 'Райффайзен', 'Озон Банк'],
   reserveMinutes: 15,
   delivery: [
-    { id: 'cdek', title: 'СДЭК', note: 'до пункта выдачи' },
+    { id: 'cdek', title: 'СДЭК', note: 'до пункта выдачи', best: true },
     { id: 'post', title: 'Почта России', note: 'до отделения' },
     { id: '5post', title: '5Post', note: 'постамат или Пятёрочка' },
     { id: 'ymarket', title: 'Яндекс Маркет', note: 'пункт выдачи Маркета' },

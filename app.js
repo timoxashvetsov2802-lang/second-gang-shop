@@ -149,7 +149,7 @@
         <label class="search">${I.search}<input id="q" type="search" placeholder="Поиск по бренду или вещи" value="${esc(query)}" autocomplete="off"></label>
       </header>
       <div class="chips">${window.CATEGORIES.map((c) => `<button class="chip ${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-      ${!query && cat === 'Все' ? `<div class="sale"><b>ARCHIVE &amp; GRAILS</b><span>Оригинальные вещи · проверка перед отправкой · оплата по СБП</span></div>` : ''}
+      ${!query && cat === 'Все' ? `<div class="sale"><b>ОТПРАВКА В ДЕНЬ ЗАКАЗА</b></div>` : ''}
       <div class="section-head"><h2>${query ? 'Результаты' : 'Свежее'}</h2><span>${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')}</span></div>
       ${list.length ? `<div class="grid">${list.map(card).join('')}</div>`
         : `<div class="empty"><b>Ничего не нашли</b>Попробуй другой бренд или категорию</div>`}
@@ -249,7 +249,7 @@
       <div class="block">
         <h3>Доставка</h3>
         <div class="opts" id="delivery">
-          ${S.delivery.map((x) => `<button class="opt ${x.id === del ? 'on' : ''}" data-del="${x.id}"><span class="r"></span><span class="grow"><b>${esc(x.title)}</b><small>${esc(x.note)}</small></span></button>`).join('')}
+          ${S.delivery.map((x) => `<button class="opt ${x.id === del ? 'on' : ''}" data-del="${x.id}"><span class="r"></span><span class="grow"><b>${esc(x.title)}${x.best ? '<em class="best">Лучший вариант</em>' : ''}</b><small>${esc(x.note)}</small></span></button>`).join('')}
         </div>
         <label class="field" data-f="addr" style="margin-top:12px">
           <span id="addr-lbl">Город и адрес пункта выдачи</span>
