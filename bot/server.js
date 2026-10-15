@@ -20,7 +20,62 @@ const DATA_DIR = process.env.DATA_DIR ? new URL(`file:///${process.env.DATA_DIR.
 const DB_FILE = new URL('./orders.json', DATA_DIR);
 fs.mkdirSync(DATA_DIR, { recursive: true });
 let orders = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : [];
-const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(orders, null, 1));
+const save = () => { fs.writeFileSync(DB_FILE, JSON.stringify(orders, null, 1)); scheduleBackup(); };
+
+// Бесплатный хостинг стирает диск при перезапуске, поэтому копия заказов лежит файлом,
+// закреплённым в чате первого админа с ботом. Обновляется молча (правка сообщения не шлёт уведомлений).
+const BACKUP_CHAT = ADMINS[0];
+const BACKUP_TAG = '#sg_orders_backup';
+let backupMsgId = 0;
+let backupTimer = null;
+function scheduleBackup() {
+  if (!BACKUP_CHAT || process.env.BACKUP === '0') return;
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(() => pushBackup().catch((e) => console.error('backup', e)), 3000);
+}
+async function tgUpload(method, fields, fileField, name, content) {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) form.append(k, typeof v === 'string' ? v : JSON.stringify(v));
+  form.append(fileField, new Blob([content], { type: 'application/json' }), name);
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, { method: 'POST', body: form, signal: AbortSignal.timeout(30e3) });
+    const j = await r.json();
+    if (!j.ok) console.error(method, j.description);
+    return j.result;
+  } catch (e) { console.error(method, 'сеть:', e.cause?.code || e.message); return undefined; }
+}
+async function pushBackup() {
+  const content = JSON.stringify(orders);
+  const caption = `${BACKUP_TAG}\nКопия заказов для бота — не удаляй и не открепляй. Заказов: ${orders.length}`;
+  if (backupMsgId) {
+    const ok = await tgUpload('editMessageMedia', {
+      chat_id: String(BACKUP_CHAT), message_id: String(backupMsgId),
+      media: { type: 'document', media: 'attach://f', caption },
+    }, 'f', 'orders.json', content);
+    if (ok) return;
+  }
+  const msg = await tgUpload('sendDocument', { chat_id: String(BACKUP_CHAT), caption, disable_notification: 'true' }, 'document', 'orders.json', content);
+  if (msg) {
+    backupMsgId = msg.message_id;
+    await api('pinChatMessage', { chat_id: BACKUP_CHAT, message_id: backupMsgId, disable_notification: true });
+  }
+}
+// При старте без локального файла поднимаем заказы из закреплённой копии.
+async function restoreBackup() {
+  if (!BACKUP_CHAT) return;
+  const chat = await api('getChat', { chat_id: BACKUP_CHAT });
+  const pin = chat && chat.pinned_message;
+  if (!pin || !pin.document || !(pin.caption || '').startsWith(BACKUP_TAG)) return;
+  backupMsgId = pin.message_id;
+  if (orders.length) return;
+  const file = await api('getFile', { file_id: pin.document.file_id });
+  if (!file) return;
+  try {
+    const r = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`, { signal: AbortSignal.timeout(30e3) });
+    const data = await r.json();
+    if (Array.isArray(data)) { orders = data; fs.writeFileSync(DB_FILE, JSON.stringify(orders, null, 1)); console.log('заказы восстановлены из копии:', orders.length); }
+  } catch (e) { console.error('restore', e.message); }
+}
 const itemsOf = (o) => (o.items && o.items.length ? o.items : [{ productId: o.productId, title: o.title, size: o.size, price: o.total }]);
 const soldIds = () => new Set(orders.filter((o) => !['canceled', 'expired'].includes(o.status)).flatMap((o) => itemsOf(o).map((i) => i.productId)));
 const findOrder = (id) => orders.find((o) => o.id.toUpperCase() === String(id).toUpperCase());
@@ -69,7 +124,12 @@ const api = async (method, body) => {
 };
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
-let publicUrl = process.env.PUBLIC_URL || '';
+// На Render адрес сервиса приходит сам (RENDER_EXTERNAL_URL) — тогда бот работает через вебхук.
+let publicUrl = process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '';
+const WEBHOOK = !!publicUrl && process.env.TUNNEL !== '1';
+const tokenHash = crypto.createHash('sha256').update(TOKEN).digest('hex');
+const HOOK_PATH = '/tg/' + tokenHash.slice(0, 24);
+const HOOK_SECRET = tokenHash.slice(24, 56);
 // v= меняется при каждом запуске бота, чтобы Telegram не показывал закэшированную старую версию.
 const VERSION = process.env.APP_VERSION || Date.now().toString(36);
 const appUrl = (hash = '') => WEBAPP_URL + `?v=${VERSION}` + (publicUrl ? `&api=${encodeURIComponent(publicUrl)}` : '') + hash;
@@ -83,7 +143,11 @@ async function setMenu() {
 }
 
 async function setup() {
-  await api('deleteWebhook', { drop_pending_updates: false });
+  if (WEBHOOK) {
+    await api('setWebhook', { url: publicUrl + HOOK_PATH, secret_token: HOOK_SECRET, allowed_updates: ['message', 'callback_query'], drop_pending_updates: false });
+  } else {
+    await api('deleteWebhook', { drop_pending_updates: false });
+  }
   await api('setMyCommands', { commands: [{ command: 'start', description: 'Открыть магазин' }] });
   for (const admin of ADMINS) {
     await api('setMyCommands', {
@@ -280,6 +344,19 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') return res.end();
   if (req.url === '/health') return res.end('ok');
 
+  // Вебхук Telegram: принимаем только запросы с нашим секретом.
+  if (req.method === 'POST' && req.url === HOOK_PATH) {
+    if (req.headers['x-telegram-bot-api-secret-token'] !== HOOK_SECRET) { res.statusCode = 403; return res.end(); }
+    let body = '';
+    for await (const chunk of req) { body += chunk; if (body.length > 1e6) break; }
+    res.end('ok');
+    try {
+      const u = JSON.parse(body);
+      await (u.message ? onMessage(u.message) : u.callback_query ? onCallback(u.callback_query) : null);
+    } catch (e) { console.error('webhook', e); }
+    return;
+  }
+
   const user = checkInitData(req.headers['x-init-data'] || '');
   const json = (code, body) => { res.statusCode = code; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)); };
 
@@ -333,11 +410,15 @@ const server = http.createServer(async (req, res) => {
   json(404, { error: 'not found' });
 });
 
-server.listen(PORT, () => console.log('listening on', PORT));
-setup().catch((e) => console.error('setup', e)).then(poll);
+process.on('unhandledRejection', (e) => console.error('unhandled', e));
+await restoreBackup().catch((e) => console.error('restore', e));
+if (!backupMsgId && orders.length) scheduleBackup();
+server.listen(PORT, () => console.log('listening on', PORT, WEBHOOK ? `вебхук ${publicUrl}` : 'long polling'));
+setup().catch((e) => console.error('setup', e)).then(() => (WEBHOOK ? null : poll()));
+// Бесплатный Render засыпает без входящих запросов — пингуем себя раз в 10 минут.
+if (WEBHOOK) setInterval(() => fetch(publicUrl + '/health').catch(() => {}), 10 * 60e3);
 releaseDemoHolds();
 setInterval(() => releaseDemoHolds().catch((e) => console.error('holds', e)), 60e3);
-process.on('unhandledRejection', (e) => console.error('unhandled', e));
 
 if (process.env.TUNNEL === '1' && !process.env.PUBLIC_URL) {
   startTunnel(PORT, (url) => {

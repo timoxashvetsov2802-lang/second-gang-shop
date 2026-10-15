@@ -34,7 +34,7 @@
   // Адрес сервера бота приходит параметром ?api= из кнопки бота (адрес туннеля меняется).
   const apiParam = new URLSearchParams(location.search).get('api');
   // Принимаем только адреса нашего туннеля, чтобы чужая ссылка не подменила сервер.
-  const okApi = (u) => typeof u === 'string' && /^https:\/\/[a-z0-9-]+\.lhr\.life$/.test(u);
+  const okApi = (u) => typeof u === 'string' && /^https:\/\/[a-z0-9-]+\.(lhr\.life|onrender\.com)$/.test(u);
   if (okApi(apiParam)) store.set('sg_api', apiParam);
   const stored = store.get('sg_api', '');
   const API = (okApi(apiParam) ? apiParam : okApi(stored) ? stored : '') || S.api || '';

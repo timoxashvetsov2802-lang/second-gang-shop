@@ -1,0 +1,17 @@
+# Бесплатный хостинг бота на Render: New → Blueprint → этот репозиторий.
+services:
+  - type: web
+    name: second-gang-bot
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: echo "без зависимостей"
+    startCommand: node bot/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: BOT_TOKEN
+        sync: false
+      - key: ADMIN_IDS
+        value: "8881915941,1781067106"
