@@ -115,7 +115,7 @@
   const card = (p) => `
     <a class="card fade" href="#/p/${esc(p.id)}">
       <div class="ph">
-        ${p.photos.length ? `<img src="${esc(p.photos[0])}" alt="${esc(p.title)}" loading="lazy"><span class="cnt">${p.photos.length} фото</span>` : noPhoto(p)}
+        ${p.photos.length ? `<img src="${esc(p.photos[0])}" alt="${esc(p.title)}" loading="lazy">` : noPhoto(p)}
         ${favBtn(p.id)}
         ${p.size ? `<span class="size">${esc(p.size)}</span>` : ''}
         ${p.preorder ? '<span class="pre">под заказ</span>' : ''}
@@ -132,7 +132,14 @@
 
   // Проданные вещи (у всех покупателей) приходят с сервера бота и скрываются из каталога.
   let sold = new Set(store.get('sg_sold', []));
-  const isSold = (id) => sold.has(id) || orders.some((o) => o.productId === id && !['awaiting', 'expired', 'canceled'].includes(o.status));
+  const orderIds = (o) => (o.items && o.items.length ? o.items.map((i) => i.productId) : [o.productId]);
+  const isSold = (id) => sold.has(id) || orders.some((o) => orderIds(o).includes(id) && !['awaiting', 'expired', 'canceled'].includes(o.status));
+
+  // Корзина: id вещей; проданные и пропавшие из каталога выкидываем.
+  let cart = store.get('sg_cart', []);
+  const saveCart = () => store.set('sg_cart', cart);
+  const cartProducts = () => cart.map(byId).filter((p) => p && !isSold(p.id));
+  const inCart = (id) => cart.includes(id);
   async function syncSold() {
     if (!API) return;
     try {
@@ -155,19 +162,17 @@
       (cat === 'Все' || p.category === cat) &&
       (!query || (p.title + ' ' + p.brand).toLowerCase().includes(query.toLowerCase()))
     ).sort((a, b) => b.added.localeCompare(a.added));
-    const act = activeOrders();
 
     return `
       <header class="top">
         <div class="brand">
           <button class="avatar-btn" data-menu aria-label="Открыть меню"><img src="img/logo.jpg" alt="SECOND GANG SHOP"></button>
           <div class="grow"><b>${esc(S.name)}</b><small>shop · ${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')} в наличии</small></div>
-          <a class="icon-btn" href="#/orders" aria-label="Мои заказы">${I.bag}${act ? `<i class="num">${act}</i>` : ''}</a>
+          <a class="icon-btn" href="#/cart" aria-label="Корзина">${I.bag}${cartProducts().length ? `<i class="num">${cartProducts().length}</i>` : ''}</a>
         </div>
         <label class="search">${I.search}<input id="q" type="search" placeholder="Поиск по бренду или вещи" value="${esc(query)}" autocomplete="off"></label>
       </header>
       <div class="chips">${window.CATEGORIES.map((c) => `<button class="chip ${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-      ${!query && cat === 'Все' ? `<div class="sale"><b>ARCHIVE &amp; GRAILS</b><span>Оригинальные вещи · проверка перед отправкой · отправка день в день · оплата по СБП</span></div>` : ''}
       <div class="section-head"><h2>${query ? 'Результаты' : 'Свежее'}</h2><span>${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')}</span></div>
       ${list.length ? `<div class="grid">${list.map(card).join('')}</div>`
         : `<div class="empty"><b>Ничего не нашли</b>Попробуй другой бренд или категорию</div>`}
@@ -178,8 +183,9 @@
   function product(id) {
     const p = byId(id);
     if (!p) return notFound();
-    const mine = orders.find((o) => o.productId === id && !['awaiting', 'expired', 'canceled'].includes(o.status));
+    const mine = orders.find((o) => orderIds(o).includes(id) && !['awaiting', 'expired', 'canceled'].includes(o.status));
     const gone = !mine && isSold(id);
+    const badge = mine ? 'Твой заказ' : gone ? 'Продано' : p.preorder ? 'Под заказ' : '';
     return `
       <div class="gallery">
         ${p.photos.length ? `
@@ -187,43 +193,43 @@
         <div class="dots" id="dots">${p.photos.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : noPhoto(p, true)}
         ${favBtn(p.id)}
       </div>
-      ${p.photos.length > 1 ? `<div class="thumbs" id="thumbs">${p.photos.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i ? '' : 'on'}" alt="">`).join('')}</div>` : ''}
       <div class="pinfo">
-        <div class="price">${rub(p.price)}</div>
+        ${badge ? `<span class="pbadge">${badge}</span>` : ''}
         <h1>${esc(p.title)}</h1>
-        <div class="stamp">${ago(p.added)} · ${esc(p.category)}</div>
-        <div class="tags">
-          <span class="tag inv">${mine ? 'Твой заказ' : gone ? 'Продано' : p.preorder ? 'Под заказ' : 'В наличии'}</span>
-          ${p.size ? `<span class="tag">Размер ${esc(p.size)}</span>` : ''}
-          <span class="tag">${esc(p.brand)}</span>
+        <div class="price">${rub(p.price)}</div>
+        <div class="facts">
+          ${p.size ? `<div class="fact"><small>Размер</small><b>${esc(p.size)}</b></div>` : ''}
+          ${p.condition ? `<div class="fact"><small>Состояние</small><b>${esc(p.condition)}</b></div>` : ''}
         </div>
-      </div>
-      <div class="block">
-        <h3>Характеристики</h3>
-        <dl class="specs">
-          ${p.size ? `<dt>Размер</dt><dd>${esc(p.size)}${p.sizeNote ? `<br><small class="sub">${esc(p.sizeNote)}</small>` : ''}</dd>` : ''}
-          <dt>Состояние</dt><dd>${esc(p.condition)}</dd>
-          <dt>Бренд</dt><dd>${esc(p.brand)}</dd>
-          <dt>Категория</dt><dd>${esc(p.category)}</dd>
-        </dl>
-      </div>
-      ${p.desc ? `<div class="block"><h3>Описание</h3><p>${esc(p.desc)}</p></div>` : ''}
-      <div class="block">
-        <div class="seller">
-          <img src="img/logo.jpg" alt="">
-          <div class="grow"><b>${esc(S.name)}</b><small>Менеджер @${esc(S.manager)}</small></div>
-          <a class="copy" href="#" data-ask="${esc(p.id)}">${I.chat}<span>Спросить</span></a>
-        </div>
-      </div>
-      <div class="block">
-        <div class="note">${I.shield}<div>Быстрая оплата через СБП в приложении твоего банка. Каждую вещь проверяем перед отправкой.</div></div>
+        ${p.sizeNote ? `<div class="fact-note">${esc(p.sizeNote)}</div>` : ''}
+        ${p.desc ? `<blockquote class="quote">${esc(p.desc)}</blockquote>` : ''}
+        <a class="ask" href="#" data-ask="${esc(p.id)}">${I.chat}<span class="grow">Задать вопрос @${esc(S.manager)}</span>${I.arrow}</a>
       </div>
       <div class="actionbar">
         <button class="btn ghost ${favs.has(p.id) ? 'on' : ''}" data-fav="${esc(p.id)}" aria-label="В избранное">${I.heart}</button>
         ${mine ? `<a class="btn" href="#/order/${esc(mine.id)}">Мой заказ · ${esc(STATUS[mine.status])}</a>`
           : gone ? '<button class="btn" disabled>Продано</button>'
-          : `<button class="btn" id="buy">Купить · ${rub(p.price)}</button>`}
+          : `${inCart(p.id) ? '<a class="btn outline" href="#/cart">В корзине</a>' : `<button class="btn outline" data-addcart="${esc(p.id)}">В корзину</button>`}
+             <button class="btn accent" id="buy">Купить</button>`}
       </div>
+    `;
+  }
+
+  function cartView() {
+    const list = cartProducts();
+    const total = list.reduce((sum, p) => sum + p.price, 0);
+    return `
+      <div class="ptop">${backLink('#/')}<h1>Корзина</h1><p>${list.length ? list.length + ' ' + plural(list.length, 'вещь', 'вещи', 'вещей') : 'Пока пусто'}</p></div>
+      ${list.length ? `
+      <div style="padding-top:12px">${list.map((p) => `
+        <div class="block order cart-row">
+          <a href="#/p/${esc(p.id)}">${thumbImg(p)}</a>
+          <a class="grow" href="#/p/${esc(p.id)}"><b>${esc(p.title)}</b><small>${p.size ? esc(p.size) + ' · ' : ''}${esc(p.condition)}</small><small class="cprice">${rub(p.price)}</small></a>
+          <button class="rm" data-rmcart="${esc(p.id)}" aria-label="Убрать">${I.cross}</button>
+        </div>`).join('')}</div>
+      <div class="block"><div class="total big" style="margin:0;padding:0;border:0"><span>Итого</span><b>${rub(total)}</b></div></div>
+      <div class="actionbar"><a class="btn accent" href="#/checkout/cart">Оформить · ${rub(total)}</a></div>`
+      : `<div class="empty"><b>Корзина пуста</b>Добавляй вещи кнопкой «В корзину»<br><a class="btn" href="#/">В каталог</a></div>`}
     `;
   }
 
@@ -239,19 +245,21 @@
   };
 
   function checkout(id) {
-    const p = byId(id);
-    if (!p) return notFound();
+    const items = id === 'cart' ? cartProducts() : [byId(id)].filter((p) => p && !isSold(p.id));
+    if (!items.length) return notFound();
+    const total = items.reduce((sum, p) => sum + p.price, 0);
     const d = draft;
     const del = S.delivery.some((x) => x.id === d.delivery) ? d.delivery : S.delivery[0].id;
     return `
-      <div class="ptop">${backLink('#/p/' + esc(p.id))}<h1>Оформление</h1><p>Шаг 1 из 2 — данные для доставки</p></div>
+      <div class="ptop">${backLink(id === 'cart' ? '#/cart' : '#/p/' + esc(id))}<h1>Оформление</h1><p>Шаг 1 из 2 — данные для доставки</p></div>
       <div class="steps"><i class="on"></i><i></i></div>
       <div class="block">
+        ${items.map((p) => `
         <div class="mini">
           ${thumbImg(p)}
           <div class="grow"><b>${esc(p.title)}</b><small>${p.size ? 'Размер ' + esc(p.size) + ' · ' : ''}${esc(p.condition)}</small></div>
           <div class="p">${rub(p.price)}</div>
-        </div>
+        </div>`).join('<div class="sep"></div>')}
       </div>
       <div class="block">
         <h3>Получатель</h3>
@@ -279,11 +287,11 @@
         <label class="field"><span>Комментарий</span><textarea id="f-comment" rows="2" placeholder="Необязательно"></textarea></label>
       </div>
       <div class="block">
-        <div class="total"><span>Товар</span><b>${rub(p.price)}</b></div>
+        <div class="total"><span>${items.length > 1 ? 'Вещей: ' + items.length : 'Товар'}</span><b>${rub(total)}</b></div>
         <div class="total"><span>Доставка</span><b>по тарифу службы</b></div>
-        <div class="total big"><span>Итого</span><b>${rub(p.price)}</b></div>
+        <div class="total big"><span>Итого</span><b>${rub(total)}</b></div>
       </div>
-      <div class="actionbar"><button class="btn" id="to-pay">Перейти к оплате</button></div>
+      <div class="actionbar"><button class="btn accent" id="to-pay">Перейти к оплате</button></div>
     `;
   }
 
@@ -292,7 +300,7 @@
     if (!o) return notFound();
     if (o.status !== 'awaiting') return orderView(orderId);
     return `
-      <div class="ptop">${backLink('#/checkout/' + esc(o.productId))}<h1>Оплата</h1><p>Шаг 2 из 2 — оплати заказ через СБП</p></div>
+      <div class="ptop">${backLink('#/checkout/' + esc(o.src || o.productId))}<h1>Оплата</h1><p>Шаг 2 из 2 — оплати заказ через СБП</p></div>
       <div class="steps"><i class="on"></i><i class="on"></i></div>
       <div class="paybox">
         <div class="lbl">К оплате</div>
@@ -307,7 +315,7 @@
         </div>
       </div>
       ${S.demoPayment ? `<div class="block demo"><div class="note">${I.shield}<div><b>Демо-режим.</b> Оплата имитируется, деньги не списываются.</div></div></div>` : ''}
-      <div class="actionbar"><button class="btn sbp-btn" id="sbp"><span class="sbp-logo">СБП</span>Оплатить через СБП</button></div>
+      <div class="actionbar"><button class="btn accent sbp-btn" id="sbp"><span class="sbp-logo">СБП</span>Оплатить через СБП</button></div>
       <div class="sheet" id="sheet" hidden><div class="sheet-card" id="sheet-card"></div></div>
     `;
   }
@@ -341,11 +349,14 @@
         ${trackUrl ? `<a class="btn outline wide" href="${esc(trackUrl)}" data-ext>${I.truck}Отследить на сайте ${esc(o.delivery)}</a>` : ''}` : `<div class="sub" style="margin-top:4px">Трек-номер появится, когда заказ передадут в ${esc(o.delivery)}</div>`}
       </div>`}
       <div class="block">
+        ${(o.items && o.items.length ? o.items : [{ productId: o.productId, title: o.title, price: o.total }]).map((i) => `
         <div class="order">
-          ${thumbImg(byId(o.productId))}
-          <div class="grow"><b>${esc(o.title)}</b><small>${esc(o.name)}</small><small>${esc(o.delivery)} · ${esc(o.addr)}</small></div>
-          <b>${rub(o.total)}</b>
-        </div>
+          ${thumbImg(byId(i.productId))}
+          <div class="grow"><b>${esc(i.title)}</b><small>${i.size ? esc(i.size) : ''}</small></div>
+          <b>${rub(i.price)}</b>
+        </div>`).join('<div class="sep"></div>')}
+        <div class="sep"></div>
+        <div class="sub">${esc(o.name)} · ${esc(o.phone)}<br>${esc(o.delivery)} · ${esc(o.addr)}</div>
       </div>
       <div class="actionbar">
         ${bad ? `<a class="btn" href="#/p/${esc(o.productId)}">К товару</a>`
@@ -422,8 +433,9 @@
       </div>
       <nav class="d-nav">
         ${item('#/', I.home, 'Каталог', '')}
+        ${item('#/cart', I.bag, 'Корзина', 'cart', cartProducts().length)}
         ${item('#/fav', I.heart, 'Избранное', 'fav', favs.size)}
-        ${item('#/orders', I.bag, 'Мои заказы', 'orders', activeOrders())}
+        ${item('#/orders', I.truck, 'Мои заказы', 'orders', activeOrders())}
         ${item('#/about', I.info, 'О магазине', 'about')}
       </nav>
       <div class="d-links links">${linkRows()}</div>
@@ -542,6 +554,7 @@
       case 'checkout': html = checkout(arg); break;
       case 'pay': html = pay(arg); break;
       case 'order': case 'done': html = orderView(arg); break;
+      case 'cart': html = cartView(); break;
       case 'fav': html = favorites(); break;
       case 'orders': html = myOrders(); break;
       case 'about': html = about(); break;
@@ -588,7 +601,8 @@
     .map((w) => w.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('-')).join(' ');
 
   function bindCheckout(id) {
-    const p = byId(id);
+    const items = id === 'cart' ? cartProducts() : [byId(id)].filter(Boolean);
+    if (!items.length) return;
     const lbl = document.getElementById('addr-lbl');
     const setLbl = (d) => { lbl.textContent = d === 'post' ? 'Город, адрес и индекс' : 'Город и адрес пункта выдачи'; };
     let del = S.delivery.some((x) => x.id === draft.delivery) ? draft.delivery : S.delivery[0].id;
@@ -632,13 +646,17 @@
       Object.assign(draft, { name: name.value, phoneDigits: digits, addr, delivery: del }); store.set('sg_contact', draft);
       const o = {
         id: 'SG-' + Math.random().toString(36).slice(2, 7).toUpperCase(),
-        productId: p.id, title: p.title, size: p.size, total: p.price,
+        src: id,
+        productId: items[0].id,
+        title: items[0].title + (items.length > 1 ? ` + ещё ${items.length - 1}` : ''),
+        items: items.map((p) => ({ productId: p.id, title: p.title, size: p.size, price: p.price })),
+        size: items[0].size, total: items.reduce((sum, p) => sum + p.price, 0),
         name: name.value, phone: phoneStr, addr,
         deliveryId: del, delivery: S.delivery.find((x) => x.id === del).title,
         comment: document.getElementById('f-comment').value.trim(),
         status: 'awaiting', createdAt: new Date().toISOString(),
       };
-      orders = orders.filter((x) => !(x.productId === p.id && x.status === 'awaiting'));
+      orders = orders.filter((x) => x.status !== 'awaiting');
       orders.push(o); saveOrders(); haptic('medium');
       location.replace('#/pay/' + o.id);
     });
@@ -664,11 +682,12 @@
       card.innerHTML = `<div class="sheet-bank"><span class="sbp-logo">СБП</span>Система быстрых платежей</div><div class="sheet-wait">${I.loader}<span>Проводим платёж…</span></div>`;
       const [ok] = await Promise.all([sendOrder({ ...o, status: 'paid' }), new Promise((r) => setTimeout(r, 1600))]);
       if (!ok) {
-        o.status = 'canceled'; saveOrders(); sold.add(o.productId);
-        notify('error'); toast('Эту вещь только что купили');
+        o.status = 'canceled'; saveOrders(); orderIds(o).forEach((i) => sold.add(i));
+        notify('error'); toast('Кто-то уже купил вещь из заказа');
         return location.replace('#/');
       }
       o.status = 'paid'; o.paidAt = new Date().toISOString(); saveOrders();
+      cart = cart.filter((c) => !orderIds(o).includes(c)); saveCart();
       notify('success');
       location.replace('#/order/' + o.id);
     });
@@ -676,7 +695,7 @@
 
   // ---------- global clicks ----------
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-fav],[data-cat],[data-copy],[data-ask],[data-manager],[data-menu],#buy,[data-ext]');
+    const t = e.target.closest('[data-fav],[data-cat],[data-copy],[data-ask],[data-manager],[data-menu],[data-addcart],[data-rmcart],#buy,[data-ext]');
     if (!t) return;
     if (t.dataset.fav) {
       e.preventDefault(); e.stopPropagation();
@@ -686,6 +705,13 @@
       document.querySelectorAll(`[data-fav="${CSS.escape(id)}"]`).forEach((b) => b.classList.toggle('on', favs.has(id)));
       toast(favs.has(id) ? 'Добавлено в избранное' : 'Убрано из избранного');
       if (location.hash === '#/fav') render();
+    } else if (t.dataset.addcart) {
+      if (!inCart(t.dataset.addcart)) cart.push(t.dataset.addcart);
+      saveCart(); haptic('medium'); toast('Добавлено в корзину');
+      render.keepScroll = true; render();
+    } else if (t.dataset.rmcart) {
+      cart = cart.filter((c) => c !== t.dataset.rmcart); saveCart(); haptic();
+      render.keepScroll = true; render();
     } else if (t.hasAttribute('data-menu')) {
       setDrawer(true);
     } else if (t.dataset.cat) {
@@ -695,7 +721,7 @@
     } else if (t.dataset.ask) {
       e.preventDefault();
       const p = byId(t.dataset.ask);
-      openLink(`https://t.me/${S.manager}?text=${encodeURIComponent('Здравствуйте! Интересует ' + p.title + ' (' + p.size + ') за ' + rub(p.price))}`);
+      openLink(`https://t.me/${S.manager}?text=${encodeURIComponent('Здравствуйте! Интересует ' + p.title + (p.size ? ' (' + p.size + ')' : '') + ' за ' + rub(p.price))}`);
     } else if (t.dataset.manager) {
       const o = orders.find((x) => x.id === t.dataset.manager);
       openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(managerText(o))}`);
@@ -709,6 +735,11 @@
   window.addEventListener('hashchange', () => { if (drawerOpen) setDrawer(false, true); render(); syncOrders(); syncSold(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncOrders(); });
   setInterval(() => { if (/^#\/(order|orders)/.test(location.hash)) syncOrders(); }, 20000);
+  (() => {
+    const intro = document.getElementById('intro');
+    if (!intro) return;
+    setTimeout(() => { intro.classList.add('out'); setTimeout(() => intro.remove(), 500); }, 3000);
+  })();
   expireOld();
   render();
   syncOrders();
