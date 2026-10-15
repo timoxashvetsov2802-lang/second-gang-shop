@@ -116,7 +116,7 @@ window.PRODUCTS = [
   "id": "levis-type-1-jeans-150-years-jacket-2003s",
   "brand": "Levi’s",
   "title": "Levi’s Type 1 Jeans 150 Years Jacket 2003’s",
-  "category": "Низ",
+  "category": "Куртки",
   "price": 8000,
   "size": "L–XL",
   "sizeNote": "замеры по запросу",

@@ -109,7 +109,7 @@ body.has-bar #view { padding-bottom: calc(96px + var(--safe-b)); }
 .gallery { position: relative; background: var(--surface); }
 .slides { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .slides::-webkit-scrollbar { display: none; }
-.slides img { flex: none; width: 100%; aspect-ratio: 1/1; object-fit: cover; scroll-snap-align: center; }
+.slides img { flex: none; width: 100%; aspect-ratio: 3/4; object-fit: cover; scroll-snap-align: center; }
 .dots { position: absolute; bottom: 12px; left: 0; right: 0; display: flex; justify-content: center; gap: 5px; pointer-events: none; }
 .dots i { width: 6px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.4); transition: .2s; }
 .dots i.on { background: #fff; width: 18px; }
@@ -498,3 +498,9 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 .intro.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
 @keyframes introPop { from { opacity: 0; transform: scale(.85) rotate(-3deg); } to { opacity: 1; transform: none; } }
 @keyframes introUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* аватарка: ровное розовое кольцо стилями, а не в картинке */
+.avatar-btn { border: 2.5px solid var(--accent); padding: 2px; background: #000; }
+.avatar-btn img { border-radius: 50%; }
+.d-head img { border: 3px solid var(--accent); padding: 3px; background: #000; }
+.hero img { border: 3px solid var(--accent); padding: 3px; background: #000; }

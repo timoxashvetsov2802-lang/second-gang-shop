@@ -22,14 +22,28 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 let orders = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : [];
 const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(orders, null, 1));
 const itemsOf = (o) => (o.items && o.items.length ? o.items : [{ productId: o.productId, title: o.title, size: o.size, price: o.total }]);
-const soldIds = () => new Set(orders.filter((o) => o.status !== 'canceled').flatMap((o) => itemsOf(o).map((i) => i.productId)));
+const soldIds = () => new Set(orders.filter((o) => !['canceled', 'expired'].includes(o.status)).flatMap((o) => itemsOf(o).map((i) => i.productId)));
 const findOrder = (id) => orders.find((o) => o.id.toUpperCase() === String(id).toUpperCase());
 
 const STATUS = {
   paid: 'Оплачен', accepted: 'Принят', packing: 'Собираем', shipped: 'Отправлен',
-  delivered: 'Доставлен', canceled: 'Отменён',
+  delivered: 'Доставлен', canceled: 'Отменён', expired: 'Бронь снята',
 };
-const EMOJI = { paid: '💳', accepted: '✅', packing: '📦', shipped: '🚚', delivered: '🏁', canceled: '✖️' };
+const EMOJI = { paid: '💳', accepted: '✅', packing: '📦', shipped: '🚚', delivered: '🏁', canceled: '✖️', expired: '⌛' };
+
+// Демо-оплата: деньги не приходят, поэтому «оплаченный» заказ держит вещь только 15 минут.
+// Если за это время админ не взял заказ в работу (Принят/Собираем/трек), вещь возвращается в каталог.
+const DEMO_PAYMENT = process.env.DEMO_PAYMENT !== '0';
+const DEMO_HOLD_MS = 15 * 60e3;
+async function releaseDemoHolds() {
+  if (!DEMO_PAYMENT) return;
+  for (const o of orders) {
+    if (o.status === 'paid' && Date.now() - Date.parse(o.createdAt) > DEMO_HOLD_MS) {
+      o.status = 'expired'; o.updatedAt = new Date().toISOString(); save();
+      await refreshAdmin(o);
+    }
+  }
+}
 const TRACK_URL = {
   cdek: (n) => `https://www.cdek.ru/ru/tracking/?order_id=${encodeURIComponent(n)}`,
   post: (n) => `https://www.pochta.ru/tracking?barcode=${encodeURIComponent(n)}`,
@@ -97,7 +111,8 @@ function adminText(o) {
     (o.comment ? `Комментарий: ${esc(o.comment)}\n` : '') +
     (o.track ? `\nТрек: <code>${esc(o.track)}</code>\n` : '') +
     `\nПокупатель: ${o.username ? '@' + esc(o.username) : esc(o.firstName)} (id ${o.userId})\n` +
-    (o.status === 'shipped' || o.status === 'delivered' || o.status === 'canceled' ? ''
+    (o.status === 'expired' ? '\n<i>Демо-бронь истекла через 15 минут — вещь вернулась в каталог.</i>'
+      : o.status === 'shipped' || o.status === 'delivered' || o.status === 'canceled' ? ''
       : '\n<i>Чтобы отправить трек-номер — ответь на это сообщение цифрами трека.</i>');
 }
 function adminKeyboard(o) {
@@ -320,6 +335,8 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, () => console.log('listening on', PORT));
 setup().catch((e) => console.error('setup', e)).then(poll);
+releaseDemoHolds();
+setInterval(() => releaseDemoHolds().catch((e) => console.error('holds', e)), 60e3);
 process.on('unhandledRejection', (e) => console.error('unhandled', e));
 
 if (process.env.TUNNEL === '1' && !process.env.PUBLIC_URL) {

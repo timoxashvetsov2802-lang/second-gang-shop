@@ -95,7 +95,7 @@
   // Статусы заказа: paid ставит приложение после оплаты, остальные — админ в боте.
   const STATUS = {
     awaiting: 'Ждёт оплаты', paid: 'Оплачен', accepted: 'Принят', packing: 'Собираем',
-    shipped: 'Отправлен', delivered: 'Доставлен', canceled: 'Отменён', expired: 'Не оплачен',
+    shipped: 'Отправлен', delivered: 'Доставлен', canceled: 'Отменён', expired: 'Бронь снята',
   };
   const FLOW = ['paid', 'packing', 'shipped', 'delivered'];
   const TRACK_URL = {
@@ -334,7 +334,7 @@
       <div class="status fade">
         <div class="ic">${bad ? I.cross : o.status === 'shipped' ? I.truck : I.check}</div>
         <h1>${esc(STATUS[o.status] || o.status)}</h1>
-        <p>${bad ? (o.status === 'expired' ? 'Заказ не был оплачен вовремя. Оформи его заново, если вещь ещё в наличии.' : 'Заказ отменён. Если есть вопросы — напиши менеджеру.')
+        <p>${bad ? (o.status === 'expired' ? 'Бронь на вещь истекла через 15 минут. Оформи заново, если она ещё в наличии.' : 'Заказ отменён. Если есть вопросы — напиши менеджеру.')
           : o.status === 'shipped' ? `Заказ ${esc(o.id)} в пути. Трек-номер ниже.`
           : o.status === 'delivered' ? `Заказ ${esc(o.id)} доставлен. Спасибо, что с нами!`
           : `Заказ ${esc(o.id)} на ${rub(o.total)}. Статус обновится здесь и придёт сообщением от бота.`}</p>
@@ -496,7 +496,11 @@
   function expireOld() {
     const ttl = S.reserveMinutes * 60e3;
     let changed = false;
-    orders.forEach((o) => { if (o.status === 'awaiting' && Date.now() - new Date(o.createdAt) > ttl) { o.status = 'expired'; changed = true; } });
+    orders.forEach((o) => {
+      if (o.status === 'awaiting' && Date.now() - new Date(o.createdAt) > ttl) { o.status = 'expired'; changed = true; }
+      // Демо-оплата держит вещь 15 минут, потом она возвращается в каталог (так же делает сервер).
+      if (S.demoPayment && o.status === 'paid' && Date.now() - new Date(o.paidAt || o.createdAt) > ttl) { o.status = 'expired'; changed = true; }
+    });
     if (changed) saveOrders();
   }
 
@@ -547,6 +551,7 @@
   }
 
   // ---------- router ----------
+  const scrollMem = {};
   function render() {
     clearInterval(timer);
     const h = location.hash.replace(/^#/, '') || '/';
@@ -567,7 +572,11 @@
     $view.innerHTML = html;
     document.body.classList.toggle('has-bar', !!$view.querySelector('.actionbar'));
     if (tg) route ? tg.BackButton.show() : tg.BackButton.hide();
-    if (!render.keepScroll) window.scrollTo(0, 0);
+    // Списки (каталог, избранное, корзина, заказы) открываются на том же месте, где ушли с них.
+    const key = location.hash || '#/';
+    if (render.keepScroll) { /* остаёмся где были */ }
+    else if (['', 'fav', 'cart', 'orders'].includes(route || '') && scrollMem[key] != null) window.scrollTo(0, scrollMem[key]);
+    else window.scrollTo(0, 0);
     render.keepScroll = false;
 
     if (route === 'p') bindGallery();
@@ -740,7 +749,11 @@
     }
   });
 
-  window.addEventListener('hashchange', () => { if (drawerOpen) setDrawer(false, true); render(); syncOrders(); syncSold(); });
+  window.addEventListener('hashchange', (e) => {
+    scrollMem[new URL(e.oldURL).hash || '#/'] = window.scrollY;
+    if (drawerOpen) setDrawer(false, true);
+    expireOld(); render(); syncOrders(); syncSold();
+  });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncOrders(); });
   setInterval(() => { if (/^#\/(order|orders)/.test(location.hash)) syncOrders(); }, 20000);
   (() => {
