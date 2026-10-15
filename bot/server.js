@@ -44,7 +44,9 @@ const api = async (method, body) => {
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 let publicUrl = process.env.PUBLIC_URL || '';
-const appUrl = (hash = '') => WEBAPP_URL + (publicUrl ? `?api=${encodeURIComponent(publicUrl)}` : '') + hash;
+// v= меняется при каждом запуске бота, чтобы Telegram не показывал закэшированную старую версию.
+const VERSION = process.env.APP_VERSION || Date.now().toString(36);
+const appUrl = (hash = '') => WEBAPP_URL + `?v=${VERSION}` + (publicUrl ? `&api=${encodeURIComponent(publicUrl)}` : '') + hash;
 const shopButton = () => ({ inline_keyboard: [[{ text: 'Открыть магазин', web_app: { url: appUrl() } }]] });
 
 async function setMenu() {

@@ -30,7 +30,7 @@ const P = (id, brand, title, category, price, size, condition, desc, added, extr
   ({ id, brand, title, category, price, size, condition, desc, added, photos: [], ...extra });
 
 window.PRODUCTS = [
-  P('celine-archive-cap', 'Celine', 'Celine Paris Archive Cap', 'Головные уборы', 6790, 'uni', 'хорошее',
+  P('celine-archive-cap', 'Celine', 'Celine Paris Archive Cap', 'Головные уборы', 6790, 'L', 'хорошее',
     'Редкая винтажная кепка Celine Paris с вышитым лого.', '2026-10-15T19:06:00'),
   P('stone-island-peach-sweatshirt', 'Stone Island', 'Stone Island Peach Sweatshirt', 'Верх', 3690, 'L', 'отличное',
     'Шикарный свитшот от стоника в очень мягком цвете, невероятно тактильно приятный материал.', '2026-10-15T19:05:00',
@@ -45,7 +45,7 @@ window.PRODUCTS = [
     'Культовые таби на каблуке 3 см. Кожа без заломов, подошва с запасом.', '2026-10-14T20:15:00'),
   P('rick-owens-geobasket', 'Rick Owens', 'Rick Owens Geobasket', 'Обувь', 39990, '43 EU', 'хорошее',
     'Высокие геобаскеты, чёрный/белый. Следы носки на подошве, верх в порядке.', '2026-10-14T18:00:00'),
-  P('prada-re-nylon-bag', 'Prada', 'Prada Re-Nylon Shoulder Bag', 'Аксессуары', 27490, 'uni', 'отличное',
+  P('prada-re-nylon-bag', 'Prada', 'Prada Re-Nylon Shoulder Bag', 'Аксессуары', 27490, 'M', 'отличное',
     'Сумка из нейлона с треугольным лого. Регулируемый ремень, внутри чисто.', '2026-10-13T19:20:00'),
   P('cdg-play-tee', 'Comme des Garçons', 'CDG Play Heart Tee', 'Верх', 4490, 'M', 'отличное',
     'Базовая футболка с сердцем. Принт не трескался, без катышков.', '2026-10-13T16:45:00'),
@@ -62,9 +62,9 @@ window.PRODUCTS = [
     'Карго из прочного нейлона, много карманов, регулировка на щиколотке.', '2026-10-10T20:40:00'),
   P('salomon-xt6', 'Salomon', 'Salomon XT-6 Black', 'Обувь', 13990, '42 EU', 'отличное',
     'Кроссовки XT-6 в чёрном. Ношены пару раз, коробка в комплекте.', '2026-10-10T12:05:00'),
-  P('stone-island-beanie', 'Stone Island', 'Stone Island Ribbed Beanie', 'Головные уборы', 4990, 'uni', 'отличное',
+  P('stone-island-beanie', 'Stone Island', 'Stone Island Ribbed Beanie', 'Головные уборы', 4990, 'M', 'отличное',
     'Шапка в рубчик с компасом. Шерсть, не колется.', '2026-10-09T18:30:00'),
-  P('chrome-hearts-cross-ring', 'Chrome Hearts', 'Chrome Hearts Cross Ring', 'Аксессуары', 24990, 'uni', 'хорошее',
+  P('chrome-hearts-cross-ring', 'Chrome Hearts', 'Chrome Hearts Cross Ring', 'Аксессуары', 24990, 'M', 'хорошее',
     'Кольцо из серебра 925 с крестом, внутренний диаметр 18 мм. Есть клеймо.', '2026-10-09T11:50:00'),
   P('acne-studios-1996-jeans', 'Acne Studios', 'Acne Studios 1996 Jeans', 'Низ', 9490, 'L', 'отличное',
     'Прямые джинсы свободной посадки, цвет vintage blue. W32 L32.', '2026-10-08T17:15:00'),
