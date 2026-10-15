@@ -149,7 +149,7 @@
         <label class="search">${I.search}<input id="q" type="search" placeholder="Поиск по бренду или вещи" value="${esc(query)}" autocomplete="off"></label>
       </header>
       <div class="chips">${window.CATEGORIES.map((c) => `<button class="chip ${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-      ${!query && cat === 'Все' ? `<div class="sale"><b>ОТПРАВКА В ДЕНЬ ЗАКАЗА</b></div>` : ''}
+      ${!query && cat === 'Все' ? `<div class="sale"><b>ARCHIVE &amp; GRAILS</b><span>Оригинальные вещи · проверка перед отправкой · отправка день в день · оплата по СБП</span></div>` : ''}
       <div class="section-head"><h2>${query ? 'Результаты' : 'Свежее'}</h2><span>${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')}</span></div>
       ${list.length ? `<div class="grid">${list.map(card).join('')}</div>`
         : `<div class="empty"><b>Ничего не нашли</b>Попробуй другой бренд или категорию</div>`}
