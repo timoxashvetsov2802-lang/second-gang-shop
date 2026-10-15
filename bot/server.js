@@ -225,6 +225,11 @@ const server = http.createServer(async (req, res) => {
   const user = checkInitData(req.headers['x-init-data'] || '');
   const json = (code, body) => { res.statusCode = code; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)); };
 
+  // Проданные вещи: всё, что оплачено и не отменено. Мини-аппка прячет их из каталога.
+  if (req.method === 'GET' && req.url === '/sold') {
+    return json(200, [...new Set(orders.filter((o) => o.status !== 'canceled').map((o) => o.productId))]);
+  }
+
   if (req.method === 'GET' && req.url === '/orders') {
     if (!user) return json(403, { error: 'bad initData' });
     return json(200, orders.filter((o) => o.userId === user.id).map(pick));
@@ -237,6 +242,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const o = JSON.parse(body).order || {};
       if (!/^SG-[A-Z0-9]{3,8}$/.test(o.id) || findOrder(o.id)) return json(400, { error: 'bad id' });
+      if (orders.some((x) => x.productId === o.productId && x.status !== 'canceled')) return json(409, { error: 'sold' });
       const rec = {
         id: o.id, userId: user.id, username: user.username || '', firstName: user.first_name || '',
         productId: str(o.productId, 80), title: str(o.title, 120), size: str(o.size, 20), total: Number(o.total) || 0,

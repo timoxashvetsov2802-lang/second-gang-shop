@@ -117,7 +117,8 @@
       <div class="ph">
         ${p.photos.length ? `<img src="${esc(p.photos[0])}" alt="${esc(p.title)}" loading="lazy"><span class="cnt">${p.photos.length} фото</span>` : noPhoto(p)}
         ${favBtn(p.id)}
-        <span class="size">${esc(p.size)}</span>
+        ${p.size ? `<span class="size">${esc(p.size)}</span>` : ''}
+        ${p.preorder ? '<span class="pre">под заказ</span>' : ''}
       </div>
       <div class="price">${rub(p.price)}</div>
       <div class="title">${esc(p.title)}</div>
@@ -129,11 +130,28 @@
   let query = '';
   let timer = null;
 
+  // Проданные вещи (у всех покупателей) приходят с сервера бота и скрываются из каталога.
+  let sold = new Set(store.get('sg_sold', []));
+  const isSold = (id) => sold.has(id) || orders.some((o) => o.productId === id && !['awaiting', 'expired', 'canceled'].includes(o.status));
+  async function syncSold() {
+    if (!API) return;
+    try {
+      const r = await fetch(API + '/sold');
+      if (!r.ok) return;
+      const next = new Set(await r.json());
+      if ([...next].join() !== [...sold].join()) {
+        sold = next; store.set('sg_sold', [...sold]);
+        const route = location.hash.split('/')[1] || '';
+        if (['', 'fav', 'p'].includes(route)) { render.keepScroll = true; render(); }
+      }
+    } catch (e) {}
+  }
+
   const activeOrders = () => orders.filter((o) => !['awaiting', 'expired', 'canceled', 'delivered'].includes(o.status)).length;
 
   // ---------- views ----------
   function home() {
-    const list = window.PRODUCTS.filter((p) =>
+    const list = window.PRODUCTS.filter((p) => !isSold(p.id) &&
       (cat === 'Все' || p.category === cat) &&
       (!query || (p.title + ' ' + p.brand).toLowerCase().includes(query.toLowerCase()))
     ).sort((a, b) => b.added.localeCompare(a.added));
@@ -143,7 +161,7 @@
       <header class="top">
         <div class="brand">
           <button class="avatar-btn" data-menu aria-label="Открыть меню"><img src="img/logo.jpg" alt="SECOND GANG SHOP"></button>
-          <div class="grow"><b>${esc(S.name)}</b><small>shop · ${window.PRODUCTS.length} ${plural(window.PRODUCTS.length, 'вещь', 'вещи', 'вещей')}</small></div>
+          <div class="grow"><b>${esc(S.name)}</b><small>shop · ${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')} в наличии</small></div>
           <a class="icon-btn" href="#/orders" aria-label="Мои заказы">${I.bag}${act ? `<i class="num">${act}</i>` : ''}</a>
         </div>
         <label class="search">${I.search}<input id="q" type="search" placeholder="Поиск по бренду или вещи" value="${esc(query)}" autocomplete="off"></label>
@@ -161,6 +179,7 @@
     const p = byId(id);
     if (!p) return notFound();
     const mine = orders.find((o) => o.productId === id && !['awaiting', 'expired', 'canceled'].includes(o.status));
+    const gone = !mine && isSold(id);
     return `
       <div class="gallery">
         ${p.photos.length ? `
@@ -174,21 +193,21 @@
         <h1>${esc(p.title)}</h1>
         <div class="stamp">${ago(p.added)} · ${esc(p.category)}</div>
         <div class="tags">
-          <span class="tag inv">${mine ? 'Твой заказ' : 'В наличии'}</span>
-          <span class="tag">Размер ${esc(p.size)}</span>
+          <span class="tag inv">${mine ? 'Твой заказ' : gone ? 'Продано' : p.preorder ? 'Под заказ' : 'В наличии'}</span>
+          ${p.size ? `<span class="tag">Размер ${esc(p.size)}</span>` : ''}
           <span class="tag">${esc(p.brand)}</span>
         </div>
       </div>
       <div class="block">
         <h3>Характеристики</h3>
         <dl class="specs">
-          <dt>Размер</dt><dd>${esc(p.size)}${p.sizeNote ? `<br><small class="sub">${esc(p.sizeNote)}</small>` : ''}</dd>
+          ${p.size ? `<dt>Размер</dt><dd>${esc(p.size)}${p.sizeNote ? `<br><small class="sub">${esc(p.sizeNote)}</small>` : ''}</dd>` : ''}
           <dt>Состояние</dt><dd>${esc(p.condition)}</dd>
           <dt>Бренд</dt><dd>${esc(p.brand)}</dd>
           <dt>Категория</dt><dd>${esc(p.category)}</dd>
         </dl>
       </div>
-      <div class="block"><h3>Описание</h3><p>${esc(p.desc)}</p></div>
+      ${p.desc ? `<div class="block"><h3>Описание</h3><p>${esc(p.desc)}</p></div>` : ''}
       <div class="block">
         <div class="seller">
           <img src="img/logo.jpg" alt="">
@@ -202,6 +221,7 @@
       <div class="actionbar">
         <button class="btn ghost ${favs.has(p.id) ? 'on' : ''}" data-fav="${esc(p.id)}" aria-label="В избранное">${I.heart}</button>
         ${mine ? `<a class="btn" href="#/order/${esc(mine.id)}">Мой заказ · ${esc(STATUS[mine.status])}</a>`
+          : gone ? '<button class="btn" disabled>Продано</button>'
           : `<button class="btn" id="buy">Купить · ${rub(p.price)}</button>`}
       </div>
     `;
@@ -229,7 +249,7 @@
       <div class="block">
         <div class="mini">
           ${thumbImg(p)}
-          <div class="grow"><b>${esc(p.title)}</b><small>Размер ${esc(p.size)} · ${esc(p.condition)}</small></div>
+          <div class="grow"><b>${esc(p.title)}</b><small>${p.size ? 'Размер ' + esc(p.size) + ' · ' : ''}${esc(p.condition)}</small></div>
           <div class="p">${rub(p.price)}</div>
         </div>
       </div>
@@ -476,9 +496,13 @@
     headers: { 'Content-Type': 'application/json', 'X-Init-Data': tg ? tg.initData : '', ...(opts.headers || {}) },
   });
 
-  function sendOrder(o) {
-    if (!API) return;
-    apiFetch('/order', { method: 'POST', body: JSON.stringify({ order: o }) }).catch(() => {});
+  // true — заказ принят; false — вещь уже купил кто-то другой.
+  async function sendOrder(o) {
+    if (!API || !inTg) return true;
+    try {
+      const r = await apiFetch('/order', { method: 'POST', body: JSON.stringify({ order: o }) });
+      return r.status !== 409;
+    } catch (e) { return true; }
   }
 
   // Подтягиваем статусы и трек-номера, которые админ выставил в боте.
@@ -634,40 +658,20 @@
 
     const sheet = document.getElementById('sheet');
     const card = document.getElementById('sheet-card');
-    const step = (html) => { card.innerHTML = html; card.classList.remove('fade'); void card.offsetWidth; card.classList.add('fade'); };
-    const head = `<div class="sheet-bank"><span class="sbp-logo">СБП</span>Система быстрых платежей</div>`;
-    const wait = (text) => step(`${head}<div class="sheet-wait">${I.loader}<span>${text}</span></div>`);
-
-    document.getElementById('sbp').addEventListener('click', () => {
+    document.getElementById('sbp').addEventListener('click', async () => {
       haptic('medium');
       sheet.hidden = false;
-      wait('Переходим в приложение банка…');
-      setTimeout(() => {
-        step(`
-          ${head}
-          <div class="sheet-title">Подтверждение платежа</div>
-          <div class="sheet-amt">${rub(o.total)}</div>
-          <dl class="specs">
-            <dt>Получатель</dt><dd>${esc(S.name)}</dd>
-            <dt>Назначение</dt><dd>Заказ ${esc(o.id)}</dd>
-            <dt>Комиссия</dt><dd>0 ₽</dd>
-          </dl>
-          ${S.demoPayment ? '<div class="sheet-demo">ДЕМО · деньги не списываются</div>' : ''}
-          <button class="btn" id="confirm">Подтвердить</button>
-          <button class="btn outline" id="cancel">Отмена</button>`);
-        document.getElementById('cancel').onclick = () => { sheet.hidden = true; };
-        document.getElementById('confirm').onclick = () => {
-          haptic('heavy');
-          wait('Проводим платёж…');
-          setTimeout(() => {
-            o.status = 'paid'; o.paidAt = new Date().toISOString(); saveOrders();
-            notify('success'); sendOrder(o);
-            location.replace('#/order/' + o.id);
-          }, 1400);
-        };
-      }, 1100);
+      card.innerHTML = `<div class="sheet-bank"><span class="sbp-logo">СБП</span>Система быстрых платежей</div><div class="sheet-wait">${I.loader}<span>Проводим платёж…</span></div>`;
+      const [ok] = await Promise.all([sendOrder({ ...o, status: 'paid' }), new Promise((r) => setTimeout(r, 1600))]);
+      if (!ok) {
+        o.status = 'canceled'; saveOrders(); sold.add(o.productId);
+        notify('error'); toast('Эту вещь только что купили');
+        return location.replace('#/');
+      }
+      o.status = 'paid'; o.paidAt = new Date().toISOString(); saveOrders();
+      notify('success');
+      location.replace('#/order/' + o.id);
     });
-    sheet.addEventListener('click', (e) => { if (e.target === sheet && !card.querySelector('.sheet-wait')) sheet.hidden = true; });
   }
 
   // ---------- global clicks ----------
@@ -702,10 +706,11 @@
     }
   });
 
-  window.addEventListener('hashchange', () => { if (drawerOpen) setDrawer(false, true); render(); syncOrders(); });
+  window.addEventListener('hashchange', () => { if (drawerOpen) setDrawer(false, true); render(); syncOrders(); syncSold(); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncOrders(); });
   setInterval(() => { if (/^#\/(order|orders)/.test(location.hash)) syncOrders(); }, 20000);
   expireOld();
   render();
   syncOrders();
+  syncSold();
 })();
