@@ -183,7 +183,7 @@ body.tg .back { display: none; }
 .mini img { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; filter: grayscale(1); }
 .mini .grow { flex: 1; min-width: 0; }
 .mini b { display: block; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mini small { color: var(--muted); font-size: 13px; }
+.mini small { color: var(--muted); font-size: 13px; display: block; }
 .mini .p { font-weight: 800; font-size: 17px; }
 
 .field { display: block; margin-bottom: 10px; }
