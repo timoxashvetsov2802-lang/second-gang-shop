@@ -72,14 +72,21 @@
     box: '<svg viewBox="0 0 24 24"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="m3 7.5 9 4.5 9-4.5M12 12v9"/></svg>',
   };
 
+  const noPhoto = (p, big) => `
+    <div class="noph ${big ? 'big' : ''}">
+      <span class="np-brand">${esc(p.brand)}</span>
+      <span class="np-cat">${esc(p.category)}</span>
+      <span class="np-mark">SECOND GANG</span>
+    </div>`;
+  const thumbImg = (p) => p.photos.length ? `<img src="${esc(p.photos[0])}" alt="">` : `<div class="noph-mini">${esc(p.brand.slice(0, 2).toUpperCase())}</div>`;
+
   const favBtn = (id) => `<button class="fav ${favs.has(id) ? 'on' : ''}" data-fav="${esc(id)}" aria-label="В избранное">${I.heart}</button>`;
   const backLink = (href, label = 'Назад') => `<a class="back" href="${href}">${I.back}${label}</a>`;
 
   const card = (p) => `
     <a class="card fade" href="#/p/${esc(p.id)}">
       <div class="ph">
-        <img src="${esc(p.photos[0])}" alt="${esc(p.title)}" loading="lazy">
-        <span class="cnt">${p.photos.length} фото</span>
+        ${p.photos.length ? `<img src="${esc(p.photos[0])}" alt="${esc(p.title)}" loading="lazy"><span class="cnt">${p.photos.length} фото</span>` : noPhoto(p)}
         ${favBtn(p.id)}
       </div>
       <div class="price">${rub(p.price)}</div>
@@ -108,7 +115,7 @@
         <label class="search">${I.search}<input id="q" type="search" placeholder="Поиск по бренду или вещи" value="${esc(query)}" autocomplete="off"></label>
       </header>
       <div class="chips">${window.CATEGORIES.map((c) => `<button class="chip ${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-      ${!query && cat === 'Все' ? `<div class="sale"><b>F*CK SALE</b><span>по полной предоплате скидка от 20% до 60%</span></div>` : ''}
+      ${!query && cat === 'Все' ? `<div class="sale"><b>ARCHIVE &amp; GRAILS</b><span>Оригинальные вещи · проверка перед отправкой · оплата по СБП</span></div>` : ''}
       <div class="section-head"><h2>${query ? 'Результаты' : 'Свежее'}</h2><span>${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')}</span></div>
       ${list.length ? `<div class="grid" id="grid">${list.map(card).join('')}</div>`
         : `<div class="empty"><b>Ничего не нашли</b>Попробуй другой бренд или категорию</div>`}
@@ -118,20 +125,21 @@
   function product(id) {
     const p = byId(id);
     if (!p) return notFound();
-    const pending = orders.find((o) => o.productId === id && o.status === 'checking');
+    const pending = orders.find((o) => o.productId === id && o.status === 'paid');
     return `
       <div class="gallery">
+        ${p.photos.length ? `
         <div class="slides" id="slides">${p.photos.map((src, i) => `<img src="${esc(src)}" alt="${esc(p.title)} — фото ${i + 1}">`).join('')}</div>
-        <div class="dots" id="dots">${p.photos.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>
+        <div class="dots" id="dots">${p.photos.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : noPhoto(p, true)}
         ${favBtn(p.id)}
       </div>
-      <div class="thumbs" id="thumbs">${p.photos.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i ? '' : 'on'}" alt="">`).join('')}</div>
+      ${p.photos.length > 1 ? `<div class="thumbs" id="thumbs">${p.photos.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i ? '' : 'on'}" alt="">`).join('')}</div>` : ''}
       <div class="pinfo">
         <div class="price">${rub(p.price)}</div>
         <h1>${esc(p.title)}</h1>
         <div class="stamp">${ago(p.added)} · ${esc(p.category)}</div>
         <div class="tags">
-          <span class="tag inv">${pending ? 'Забронировано' : 'В наличии'}</span>
+          <span class="tag inv">${pending ? 'Ты купил' : 'В наличии'}</span>
           <span class="tag">${esc(p.brand)}</span>
           <span class="tag">Оригинал</span>
         </div>
@@ -154,11 +162,11 @@
         </div>
       </div>
       <div class="block">
-        <div class="note">${I.shield}<div>Оплата только по СБП, полная предоплата. Вещь бронируется за тобой на ${S.reserveMinutes} минут после оформления.</div></div>
+        <div class="note">${I.shield}<div>Быстрая оплата через СБП в приложении твоего банка. Каждую вещь проверяем перед отправкой.</div></div>
       </div>
       <div class="actionbar">
         <button class="btn ghost ${favs.has(p.id) ? 'on' : ''}" data-fav="${esc(p.id)}" aria-label="В избранное">${I.heart}</button>
-        <button class="btn" id="buy" ${pending ? 'disabled' : ''}>${pending ? 'Ожидает проверки оплаты' : 'Купить · ' + rub(p.price)}</button>
+        <button class="btn" id="buy" ${pending ? 'disabled' : ''}>${pending ? 'Оплачено' : 'Купить · ' + rub(p.price)}</button>
       </div>
     `;
   }
@@ -173,7 +181,7 @@
       <div class="steps"><i class="on"></i><i></i></div>
       <div class="block">
         <div class="mini">
-          <img src="${esc(p.photos[0])}" alt="">
+          ${thumbImg(p)}
           <div class="grow"><b>${esc(p.title)}</b><small>${esc(p.size)} · ${esc(p.condition)}</small></div>
           <div class="p">${rub(p.price)}</div>
         </div>
@@ -194,14 +202,13 @@
       <div class="block">
         <h3>Способ оплаты</h3>
         <div class="opts">
-          <div class="opt on locked"><span class="sbp-mark">СБП</span><span class="grow"><b>Система быстрых платежей</b><small>перевод по номеру телефона</small></span><span class="r"></span></div>
-          <div class="opt off"><span class="r"></span><span class="grow"><b>Оплата при получении</b><small>недоступно — только предоплата</small></span></div>
+          <div class="opt on"><span class="sbp-mark">СБП</span><span class="grow"><b>Система быстрых платежей</b><small>оплата в приложении твоего банка</small></span><span class="r"></span></div>
         </div>
       </div>
       <div class="block">
         <div class="total"><span>Товар</span><b>${rub(p.price)}</b></div>
         <div class="total"><span>Доставка</span><b>по тарифу службы</b></div>
-        <div class="total big"><span>К оплате по СБП</span><b>${rub(p.price)}</b></div>
+        <div class="total big"><span>Итого</span><b>${rub(p.price)}</b></div>
       </div>
       <div class="actionbar"><button class="btn" id="to-pay">Перейти к оплате</button></div>
     `;
@@ -212,43 +219,40 @@
     if (!o) return notFound();
     if (o.status !== 'awaiting') return done(orderId);
     return `
-      <div class="ptop">${backLink('#/checkout/' + esc(o.productId))}<h1>Оплата по СБП</h1><p>Шаг 2 из 2 — переведи сумму и подтверди</p></div>
+      <div class="ptop">${backLink('#/checkout/' + esc(o.productId))}<h1>Оплата СБП</h1><p>Шаг 2 из 2 — выбери банк и подтверди платёж</p></div>
       <div class="steps"><i class="on"></i><i class="on"></i></div>
       <div class="paybox">
         <div class="lbl">К оплате</div>
         <div class="amt">${rub(o.total)}</div>
         <div class="ord">Заказ ${esc(o.id)} · ${esc(o.title)}</div>
-        <div class="timer">${I.clock}<span>Бронь: <b id="left">--:--</b></span></div>
+        <div class="timer">${I.clock}<span>Вещь закреплена за тобой: <b id="left">--:--</b></span></div>
       </div>
       <div class="block">
-        <h3>Реквизиты</h3>
-        ${req('Номер телефона (СБП)', S.sbp.phone, S.sbp.phone.replace(/[^\d+]/g, ''), 'first')}
-        ${req('Банк получателя', S.sbp.bank)}
-        ${req('Получатель', S.sbp.recipient)}
-        ${req('Сумма', rub(o.total), String(o.total))}
-        ${req('Комментарий к переводу', o.id)}
+        <h3>Выбери свой банк</h3>
+        <div class="banks">
+          ${S.banks.map((b) => `<button class="bank" data-bank="${esc(b)}"><span class="bank-ic">${esc(b[0])}</span><span>${esc(b)}</span></button>`).join('')}
+        </div>
       </div>
-      <div class="block">
-        <h3>Как оплатить</h3>
-        <ol class="howto">
-          <li>Открой приложение своего банка → «Перевод по номеру телефона» (СБП)</li>
-          <li>Вставь номер и выбери банк ${esc(S.sbp.bank)}</li>
-          <li>Переведи ровно ${rub(o.total)}, в комментарии укажи ${esc(o.id)}</li>
-          <li>Вернись сюда и нажми «Я оплатил»</li>
-        </ol>
+      <div class="block qrblock">
+        <div class="qr">${qr(o.id)}</div>
+        <div><b>Или отсканируй QR</b><small>камерой телефона, если открыл магазин с компьютера</small></div>
       </div>
-      <div class="block">
-        <label class="check"><input type="checkbox" id="agree"><span class="box"></span><span>Я перевёл ${rub(o.total)} по СБП на номер ${esc(S.sbp.phone)}</span></label>
-      </div>
-      <div class="actionbar"><button class="btn" id="paid" disabled>Я оплатил</button></div>
+      ${S.demoPayment ? `<div class="block demo"><div class="note">${I.shield}<div><b>Демо-режим.</b> Оплата имитируется, деньги не списываются. Реальный эквайринг СБП подключим позже.</div></div></div>` : ''}
+      <div class="sheet" id="sheet" hidden><div class="sheet-card" id="sheet-card"></div></div>
     `;
   }
 
-  const req = (label, shown, value, cls = '') => `
-    <div class="req ${cls}">
-      <div class="grow"><small>${esc(label)}</small><b>${esc(shown)}</b></div>
-      <button class="copy" data-copy="${esc(value ?? shown)}">${I.copy}<span>Копировать</span></button>
-    </div>`;
+  // Псевдо-QR: детерминированный узор из номера заказа (в демо не ведёт на платёж).
+  function qr(seed) {
+    const n = 25, c = 6;
+    let h = 0; for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    const rnd = () => ((h = (h * 1103515245 + 12345) >>> 0) >>> 16) & 1;
+    const finder = (x, y) => [[0, 0], [n - 7, 0], [0, n - 7]].some(([fx, fy]) => x >= fx && x < fx + 7 && y >= fy && y < fy + 7);
+    const fOn = (x, y) => { for (const [fx, fy] of [[0, 0], [n - 7, 0], [0, n - 7]]) { const dx = x - fx, dy = y - fy; if (dx >= 0 && dx < 7 && dy >= 0 && dy < 7) return dx === 0 || dy === 0 || dx === 6 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4); } return false; };
+    let r = '';
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (finder(x, y) ? fOn(x, y) : rnd()) r += `<rect x="${x * c}" y="${y * c}" width="${c}" height="${c}"/>`;
+    return `<svg viewBox="-12 -12 ${n * c + 24} ${n * c + 24}"><rect x="-12" y="-12" width="${n * c + 24}" height="${n * c + 24}" fill="#fff"/><g fill="#000">${r}</g></svg>`;
+  }
 
   function done(orderId) {
     const o = orders.find((x) => x.id === orderId);
@@ -256,19 +260,19 @@
     const expired = o.status === 'expired';
     return `
       <div class="status fade">
-        <div class="ic">${expired ? I.clock : I.loader}</div>
-        <h1>${expired ? 'Бронь истекла' : 'Проверяем оплату'}</h1>
-        <p>${expired ? 'Оплата не поступила вовремя. Оформи заказ заново, если вещь ещё в наличии.'
-          : `Заказ ${esc(o.id)} на ${rub(o.total)}. Менеджер сверит перевод и напишет тебе в Telegram в течение 15 минут.`}</p>
+        <div class="ic">${expired ? I.clock : I.check}</div>
+        <h1>${expired ? 'Время вышло' : 'Оплачено'}</h1>
+        <p>${expired ? 'Заказ не был оплачен вовремя. Оформи его заново, если вещь ещё в наличии.'
+          : `Заказ ${esc(o.id)} на ${rub(o.total)} оплачен через СБП. Менеджер напишет тебе в Telegram, чтобы согласовать отправку.`}</p>
       </div>
       <div class="block">
         <div class="order">
-          <img src="${esc(byId(o.productId)?.photos[0] || 'img/logo.jpg')}" alt="">
+          ${thumbImg(byId(o.productId))}
           <div class="grow"><b>${esc(o.title)}</b><small>${esc(o.delivery)} · ${esc(o.addr)}</small></div>
           <b>${rub(o.total)}</b>
         </div>
       </div>
-      ${expired ? '' : `<div class="block"><div class="note">${I.chat}<div>Если менеджер не ответил — нажми «Написать менеджеру», номер заказа подставится сам.</div></div></div>`}
+      ${expired ? '' : `<div class="block"><div class="note">${I.chat}<div>Вопрос по заказу — жми «Написать менеджеру», номер заказа подставится сам.</div></div></div>`}
       <div class="actionbar">
         ${expired ? `<a class="btn" href="#/p/${esc(o.productId)}">К товару</a>`
           : `<button class="btn outline" data-manager="${esc(o.id)}">Написать менеджеру</button><a class="btn" href="#/">В каталог</a>`}
@@ -287,14 +291,14 @@
 
   function myOrders() {
     expireOld();
-    const label = { awaiting: 'ждёт оплаты', checking: 'проверка', expired: 'истёк' };
+    const label = { awaiting: 'ждёт оплаты', paid: 'оплачен', expired: 'отменён' };
     return `
-      <div class="ptop"><h1>Заказы</h1><p>Оплата по СБП, статусы обновляет менеджер</p></div>
+      <div class="ptop"><h1>Заказы</h1><p>История покупок и статусы</p></div>
       ${orders.length ? `<div style="padding-top:12px">${orders.slice().reverse().map((o) => `
         <a class="block order" style="display:flex" href="${o.status === 'awaiting' ? '#/pay/' : '#/done/'}${esc(o.id)}">
-          <img src="${esc(byId(o.productId)?.photos[0] || 'img/logo.jpg')}" alt="">
+          ${thumbImg(byId(o.productId))}
           <div class="grow"><b>${esc(o.title)}</b><small>${esc(o.id)} · ${rub(o.total)}</small><small>${ago(o.createdAt)}</small></div>
-          <span class="badge ${o.status === 'checking' ? 'inv' : ''}">${label[o.status]}</span>
+          <span class="badge ${o.status === 'paid' ? 'inv' : ''}">${label[o.status]}</span>
         </a>`).join('')}</div>`
         : `<div class="empty"><b>Заказов нет</b>Здесь появятся твои покупки<br><a class="btn" href="#/">В каталог</a></div>`}
     `;
@@ -318,8 +322,8 @@
         <ol class="howto">
           <li>Выбери вещь и нажми «Купить»</li>
           <li>Укажи данные для доставки</li>
-          <li>Переведи сумму по СБП — вещь забронирована на ${S.reserveMinutes} минут</li>
-          <li>Нажми «Я оплатил» — менеджер подтвердит и отправит заказ</li>
+          <li>Выбери свой банк и подтверди оплату по СБП</li>
+          <li>Менеджер напишет в Telegram и отправит заказ</li>
         </ol>
       </div>
     `;
@@ -337,7 +341,7 @@
   }
 
   function managerText(o) {
-    return `Здравствуйте! Оплатил заказ ${o.id} по СБП\n` +
+    return `Здравствуйте! Вопрос по заказу ${o.id} (оплачен по СБП)\n` +
       `${o.title} — ${rub(o.total)}\n` +
       `Получатель: ${o.name}, ${o.phone}\n` +
       `Доставка: ${o.delivery}, ${o.addr}` + (o.comment ? `\nКомментарий: ${o.comment}` : '');
@@ -351,9 +355,6 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ order: o, initData: tg ? tg.initData : '' }),
       }).catch(() => {});
-    } else {
-      // Сервера пока нет — открываем чат с менеджером с готовым текстом заказа.
-      setTimeout(() => openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(managerText(o))}`), 600);
     }
   }
 
@@ -460,14 +461,43 @@
       if (!s) { o.status = 'expired'; saveOrders(); location.replace('#/done/' + o.id); }
     };
     tick(); timer = setInterval(tick, 1000);
-    const agree = document.getElementById('agree');
-    const btn = document.getElementById('paid');
-    agree.addEventListener('change', () => { btn.disabled = !agree.checked; haptic(); });
-    btn.addEventListener('click', () => {
-      o.status = 'checking'; o.paidAt = new Date().toISOString(); saveOrders();
-      notify('success'); notifyManager(o);
-      location.replace('#/done/' + o.id);
-    });
+    const sheet = document.getElementById('sheet');
+    const card = document.getElementById('sheet-card');
+    const step = (html) => { card.innerHTML = html; card.classList.remove('fade'); void card.offsetWidth; card.classList.add('fade'); };
+    const head = (bank) => `<div class="sheet-bank"><span class="bank-ic">${esc(bank[0])}</span>${esc(bank)}</div>`;
+    const wait = (bank, text) => step(`${head(bank)}<div class="sheet-wait">${I.loader}<span>${text}</span></div>`);
+
+    document.querySelectorAll('[data-bank]').forEach((b) => b.addEventListener('click', () => {
+      const bank = b.dataset.bank;
+      haptic('medium');
+      sheet.hidden = false;
+      wait(bank, 'Открываем приложение банка…');
+      setTimeout(() => {
+        step(`
+          ${head(bank)}
+          <div class="sheet-title">Оплата по QR · СБП</div>
+          <div class="sheet-amt">${rub(o.total)}</div>
+          <dl class="specs">
+            <dt>Получатель</dt><dd>${esc(S.name)}</dd>
+            <dt>Назначение</dt><dd>Заказ ${esc(o.id)}</dd>
+            <dt>Комиссия</dt><dd>0 ₽</dd>
+          </dl>
+          ${S.demoPayment ? '<div class="sheet-demo">ДЕМО · деньги не списываются</div>' : ''}
+          <button class="btn" id="confirm">Оплатить ${rub(o.total)}</button>
+          <button class="btn outline" id="cancel">Отмена</button>`);
+        document.getElementById('cancel').onclick = () => { sheet.hidden = true; };
+        document.getElementById('confirm').onclick = () => {
+          haptic('heavy');
+          wait(bank, 'Проводим платёж…');
+          setTimeout(() => {
+            o.status = 'paid'; o.bank = bank; o.paidAt = new Date().toISOString(); saveOrders();
+            notify('success'); notifyManager(o);
+            location.replace('#/done/' + o.id);
+          }, 1400);
+        };
+      }, 1100);
+    }));
+    sheet.addEventListener('click', (e) => { if (e.target === sheet && !card.querySelector('.sheet-wait')) sheet.hidden = true; });
   }
 
   // ---------- global clicks ----------
