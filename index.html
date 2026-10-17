@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- Шрифты не блокируют показ: пока грузятся, текст виден системным шрифтом. -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Unbounded:wght@600;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="style.css?v=18">
+  <link rel="stylesheet" href="style.css?v=19">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -21,8 +21,9 @@
 
   <div class="toast" id="toast"></div>
 
-  <script src="data.js?v=18"></script>
-  <script src="auto.js"></script>
-  <script src="app.js?v=18"></script>
+  <script src="data.js?v=19"></script>
+  <!-- Новые товары из каналов и скрытые — бот обновляет live.js; ?t= чтобы всегда брать свежий. -->
+  <script id="live-loader">document.write('<script src="live.js?t=' + Date.now() + '"><\/script>');</script>
+  <script src="app.js?v=19"></script>
 </body>
 </html>

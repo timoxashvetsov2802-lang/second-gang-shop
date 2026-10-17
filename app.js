@@ -100,7 +100,8 @@
   let query = '';
 
   // Проданные вещи приходят с сервера бота и скрываются из каталога.
-  let sold = new Set(store.get('sg_sold', []));
+  // Сразу берём скрытые из live.js (лежит на GitHub вместе с магазином), сервер бота потом уточнит.
+  let sold = new Set(window.HIDDEN || store.get('sg_sold', []));
   const isSold = (id) => sold.has(id);
 
   // Корзина: id вещей; проданные и пропавшие из каталога выкидываем.

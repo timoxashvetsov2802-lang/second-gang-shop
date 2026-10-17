@@ -8,14 +8,17 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import zlib from 'node:zlib';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { startTunnel } from './tunnel.js';
 import { importNew, autoProducts } from './channel.js';
 
 const TOKEN = process.env.BOT_TOKEN;
 const ADMINS = (process.env.ADMIN_IDS || process.env.ADMIN_ID || '').split(',').map((x) => Number(x.trim())).filter(Boolean);
 const isAdminId = (id) => ADMINS.includes(id);
-// Пусто — мини-аппку раздаёт сам этот сервер по своему публичному адресу (туннель или Render).
-const WEBAPP_URL = process.env.WEBAPP_URL || '';
+// Мини-аппка живёт на GitHub Pages (работает 24/7, даже когда ПК выключен).
+// WEBAPP_URL=self — раздавать её с этого сервера по адресу туннеля/Render.
+const WEBAPP_URL = process.env.WEBAPP_URL === 'self' ? '' : process.env.WEBAPP_URL || 'https://timoxashvetsov2802-lang.github.io/second-gang-shop/';
 const PORT = Number(process.env.PORT) || 3000;
 if (!TOKEN) throw new Error('BOT_TOKEN is not set');
 
@@ -354,20 +357,51 @@ function staticFile(rawUrl) {
   return { url, ext, stat };
 }
 
+// ---------- выкладка каталога на GitHub Pages ----------
+// live.js = товары из каналов + скрытые админом. Бот пишет его в корень магазина и пушит вместе с фото,
+// через минуту GitHub Pages его отдаёт. PUBLISH=0 — не пушить (например, на Render).
+const LIVE_FILE = new URL('live.js', SHOP_DIR);
+const liveJs = () => `window.PRODUCTS.push(...${JSON.stringify(autoProducts()).replace(/</g, '\\u003c')});\nwindow.HIDDEN = ${JSON.stringify([...hidden])};\n`;
+const git = (...args) => new Promise((resolve) => {
+  execFile('git', args, { cwd: fileURLToPath(SHOP_DIR), windowsHide: true, timeout: 120e3 }, (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout) + String(stderr) }));
+});
+let publishTimer = null;
+let publishing = false;
+function publishLive() {
+  if (process.env.PUBLISH === '0') return;
+  clearTimeout(publishTimer);
+  publishTimer = setTimeout(doPublish, 15e3); // копим изменения 15 с и выкладываем одним коммитом
+}
+async function doPublish() {
+  if (publishing) return publishLive();
+  publishing = true;
+  try {
+    const js = liveJs();
+    if ((fs.existsSync(LIVE_FILE) ? fs.readFileSync(LIVE_FILE, 'utf8') : '') !== js) fs.writeFileSync(LIVE_FILE, js);
+    for (const p of ['live.js', 'img/auto', 'img/t/auto']) await git('add', '--', p); // папок может ещё не быть
+    if ((await git('diff', '--cached', '--quiet')).ok) return; // нечего выкладывать
+    const c = await git('commit', '-m', 'Каталог: новые товары из каналов / скрытые');
+    if (!c.ok) return console.error('publish commit', c.out.slice(0, 300));
+    await git('pull', '--rebase', '--autostash', '-q');
+    const p = await git('push', '-q');
+    console.log(new Date().toISOString(), p.ok ? 'каталог выложен на GitHub' : 'push не удался: ' + p.out.slice(0, 300));
+  } finally { publishing = false; }
+}
+
 // Каждый запрос через туннель — это 0,3–0,6 с, поэтому страницу отдаём одним файлом:
 // стили, каталог (data.js + товары из каналов) и скрипт вшиты прямо в index.html.
 let bundle = { key: '', etag: '', raw: null, gz: null };
 function sendBundle(req, res) {
   const read = (f) => fs.readFileSync(new URL(f, SHOP_DIR), 'utf8');
   const parts = ['index.html', 'style.css', 'data.js', 'app.js'].map((f) => fs.statSync(new URL(f, SHOP_DIR)).mtimeMs);
-  const autoJs = `window.PRODUCTS.push(...${JSON.stringify(autoProducts())});`;
+  const autoJs = liveJs();
   const key = parts.join() + ':' + crypto.createHash('md5').update(autoJs).digest('hex');
   if (bundle.key !== key) {
     const js = (s) => s.replace(/<\/script/gi, '<\\/script');
     const html = read('index.html')
       .replace(/<link rel="stylesheet" href="style\.css[^"]*">/, () => `<style>${read('style.css')}</style>`)
       .replace(/<script src="data\.js[^"]*"><\/script>/, () => `<script>${js(read('data.js'))}</script>`)
-      .replace(/<script src="auto\.js"><\/script>/, () => `<script>${js(autoJs)}</script>`)
+      .replace(/<script id="live-loader">[\s\S]*?<\/script>/, () => `<script>${js(autoJs)}</script>`)
       .replace(/<script src="app\.js[^"]*"><\/script>/, () => `<script>${js(read('app.js'))}</script>`);
     const raw = Buffer.from(html);
     bundle = { key, etag: `"b-${crypto.createHash('md5').update(raw).digest('hex').slice(0, 16)}"`, raw, gz: zlib.gzipSync(raw, { level: 9 }) };
@@ -432,14 +466,14 @@ const server = http.createServer(async (req, res) => {
   const user = checkInitData(req.headers['x-init-data'] || '');
   const json = (code, body) => { res.statusCode = code; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)); };
 
-  // Проданные вещи: всё, что оплачено и не отменено. Мини-аппка прячет их из каталога.
-  // Товары, которые бот сам добавил из новых постов каналов (подключается в index.html после data.js).
-  if (req.method === 'GET' && req.url.split('?')[0] === '/auto.js') {
+  // Товары из каналов и скрытые админом (то же, что бот выкладывает на GitHub в live.js).
+  if (req.method === 'GET' && /^\/(auto|live)\.js$/.test(req.url.split('?')[0])) {
     res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache');
-    return res.end(`window.PRODUCTS.push(...${JSON.stringify(autoProducts()).replace(/</g, '\\u003c')});`);
+    return res.end(liveJs());
   }
 
+  // Проданные вещи: всё, что оплачено и не отменено. Мини-аппка прячет их из каталога.
   if (req.method === 'GET' && req.url === '/sold') {
     return json(200, [...soldIds()]);
   }
@@ -460,6 +494,7 @@ const server = http.createServer(async (req, res) => {
       if (!pid) return json(400, { error: 'bad id' });
       hide ? hidden.add(pid) : hidden.delete(pid);
       saveHidden();
+      publishLive();
       console.log(new Date().toISOString(), hide ? 'скрыт' : 'возвращён', pid, 'админом', user.id);
       return json(200, [...soldIds()]);
     } catch { return json(400, { error: 'bad request' }); }
@@ -532,6 +567,7 @@ async function syncChannels() {
   vm.runInNewContext(fs.readFileSync(CATALOG_FILE, 'utf8'), sandbox, { timeout: 1000 });
   const added = await importNew(sandbox.window.PRODUCTS || []);
   if (!added.length) return;
+  publishLive();
   console.log(new Date().toISOString(), 'добавлено из каналов:', added.map((p) => p.post).join(', '));
   const text = '🆕 <b>Добавил в магазин</b>\n\n' + added.map((p) => `• ${esc(p.title)} — ${esc(p.price)} ₽`).join('\n');
   for (const admin of ADMINS) await api('sendMessage', { chat_id: admin, text, parse_mode: 'HTML', disable_notification: true });
@@ -539,6 +575,7 @@ async function syncChannels() {
 const runSync = () => syncChannels().catch((e) => console.error(new Date().toISOString(), 'каналы:', e.message));
 runSync();
 setInterval(runSync, 5 * 60e3);
+publishLive(); // на случай, если что-то поменялось, пока бот был выключен
 // Бесплатный Render засыпает без входящих запросов — пингуем себя раз в 10 минут.
 if (WEBHOOK) setInterval(() => fetch(publicUrl + '/health').catch(() => {}), 10 * 60e3);
 
