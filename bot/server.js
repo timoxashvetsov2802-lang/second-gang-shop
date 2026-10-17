@@ -1,6 +1,7 @@
 // Бот SECOND GANG: /start с кнопкой магазина, приём оплаченных заказов,
 // статусы и трек-номера от админа, уведомления покупателю.
-// Без зависимостей, Node 18+. Переменные: BOT_TOKEN, ADMIN_IDS (через запятую), WEBAPP_URL, PORT, TUNNEL=1, PUBLIC_URL.
+// Без зависимостей, Node 18+. Переменные: BOT_TOKEN, ADMIN_IDS (через запятую), PORT, TUNNEL=1, PUBLIC_URL,
+// WEBAPP_URL (если мини-аппка лежит на другом хостинге; по умолчанию её раздаёт этот сервер).
 // В канал бот ничего не публикует.
 import http from 'node:http';
 import crypto from 'node:crypto';
@@ -11,7 +12,8 @@ import { startTunnel } from './tunnel.js';
 const TOKEN = process.env.BOT_TOKEN;
 const ADMINS = (process.env.ADMIN_IDS || process.env.ADMIN_ID || '').split(',').map((x) => Number(x.trim())).filter(Boolean);
 const isAdminId = (id) => ADMINS.includes(id);
-const WEBAPP_URL = process.env.WEBAPP_URL || 'https://timoxashvetsov2802-lang.github.io/second-gang-shop/';
+// Пусто — мини-аппку раздаёт сам этот сервер по своему публичному адресу (туннель или Render).
+const WEBAPP_URL = process.env.WEBAPP_URL || '';
 const PORT = Number(process.env.PORT) || 3000;
 if (!TOKEN) throw new Error('BOT_TOKEN is not set');
 
@@ -120,10 +122,12 @@ const HOOK_PATH = '/tg/' + tokenHash.slice(0, 24);
 const HOOK_SECRET = tokenHash.slice(24, 56);
 // v= меняется при каждом запуске бота, чтобы Telegram не показывал закэшированную старую версию.
 const VERSION = process.env.APP_VERSION || Date.now().toString(36);
-const appUrl = (hash = '') => WEBAPP_URL + `?v=${VERSION}` + (publicUrl ? `&api=${encodeURIComponent(publicUrl)}` : '') + hash;
-const shopButton = () => ({ inline_keyboard: [[{ text: 'Открыть магазин', web_app: { url: appUrl() } }]] });
+const shopBase = () => WEBAPP_URL || (publicUrl ? publicUrl + '/' : '');
+const appUrl = (hash = '') => shopBase() + `?v=${VERSION}` + (publicUrl ? `&api=${encodeURIComponent(publicUrl)}` : '') + hash;
+const shopButton = () => (shopBase() ? { inline_keyboard: [[{ text: 'Открыть магазин', web_app: { url: appUrl() } }]] } : undefined);
 
 async function setMenu() {
+  if (!shopBase()) return; // адрес туннеля ещё не получен
   await api('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Магазин', web_app: { url: appUrl() } } });
   // Покупателям с личной кнопкой тоже обновляем адрес.
   const users = [...new Set(orders.map((o) => o.userId).concat(ADMINS))];
@@ -325,6 +329,24 @@ const pick = (o) => ({
 });
 const str = (v, n) => String(v ?? '').slice(0, n);
 
+// ---------- файлы мини-аппки ----------
+// Отдаём только страницу, скрипты, стили и картинки из img/ — папка bot/ (токен, заказы) наружу не попадает.
+const SHOP_DIR = new URL('../', import.meta.url);
+const MIME = { html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', svg: 'image/svg+xml' };
+const ROOT_FILES = new Set(['index.html', 'app.js', 'data.js', 'style.css']);
+function staticFile(rawUrl) {
+  let path;
+  try { path = decodeURIComponent(rawUrl.split('?')[0]).replace(/^\/+/, '') || 'index.html'; } catch { return null; }
+  if (path.includes('..') || path.includes('\\')) return null;
+  const ext = path.split('.').pop().toLowerCase();
+  const ok = ROOT_FILES.has(path) || (/^img\/[\w/.-]+$/.test(path) && ['jpg', 'jpeg', 'png', 'webp', 'svg'].includes(ext));
+  if (!ok) return null;
+  const url = new URL(path, SHOP_DIR);
+  try { if (!fs.statSync(url).isFile()) return null; } catch { return null; }
+  return { url, ext };
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Init-Data');
@@ -398,6 +420,16 @@ const server = http.createServer(async (req, res) => {
       return json(200, pick(rec));
     } catch (e) {
       return json(400, { error: 'bad request' });
+    }
+  }
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    const file = staticFile(req.url);
+    if (file) {
+      res.setHeader('Content-Type', MIME[file.ext]);
+      // Страницу и скрипты не кэшируем, чтобы правки сразу доходили до покупателей; фото — на сутки.
+      res.setHeader('Cache-Control', file.ext === 'html' || file.ext === 'js' || file.ext === 'css' ? 'no-cache' : 'public, max-age=86400');
+      if (req.method === 'HEAD') return res.end();
+      return fs.createReadStream(file.url).on('error', () => res.end()).pipe(res);
     }
   }
   json(404, { error: 'not found' });
