@@ -12,10 +12,6 @@ window.SHOP = {
     feedback: 'https://t.me/gangfeedback',
     tiktok: 'https://www.tiktok.com/@second.gang',
   },
-  // Демо-оплата: банки на экране СБП. Деньги не списываются, пока не подключена платёжка.
-  demoPayment: true,
-  banks: ['Сбербанк', 'Т-Банк', 'Альфа-Банк', 'ВТБ', 'Райффайзен', 'Озон Банк'],
-  reserveMinutes: 15,
   delivery: [
     { id: 'cdek', title: 'СДЭК', note: 'до пункта выдачи', best: true },
     { id: 'post', title: 'Почта России', note: 'до отделения' },

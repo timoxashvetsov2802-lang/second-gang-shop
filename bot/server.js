@@ -80,25 +80,13 @@ const itemsOf = (o) => (o.items && o.items.length ? o.items : [{ productId: o.pr
 const soldIds = () => new Set(orders.filter((o) => !['canceled', 'expired'].includes(o.status)).flatMap((o) => itemsOf(o).map((i) => i.productId)));
 const findOrder = (id) => orders.find((o) => o.id.toUpperCase() === String(id).toUpperCase());
 
+// paid и expired остались от старой демо-оплаты — чтобы старые заказы показывались нормально.
 const STATUS = {
-  paid: 'Оплачен', accepted: 'Принят', packing: 'Собираем', shipped: 'Отправлен',
+  new: 'Новый', paid: 'Новый', accepted: 'Принят', packing: 'Собираем', shipped: 'Отправлен',
   delivered: 'Доставлен', canceled: 'Отменён', expired: 'Бронь снята',
 };
-const EMOJI = { paid: '💳', accepted: '✅', packing: '📦', shipped: '🚚', delivered: '🏁', canceled: '✖️', expired: '⌛' };
-
-// Демо-оплата: деньги не приходят, поэтому «оплаченный» заказ держит вещь только 15 минут.
-// Если за это время админ не взял заказ в работу (Принят/Собираем/трек), вещь возвращается в каталог.
-const DEMO_PAYMENT = process.env.DEMO_PAYMENT !== '0';
-const DEMO_HOLD_MS = 15 * 60e3;
-async function releaseDemoHolds() {
-  if (!DEMO_PAYMENT) return;
-  for (const o of orders) {
-    if (o.status === 'paid' && Date.now() - Date.parse(o.createdAt) > DEMO_HOLD_MS) {
-      o.status = 'expired'; o.updatedAt = new Date().toISOString(); save();
-      await refreshAdmin(o);
-    }
-  }
-}
+const EMOJI = { new: '🛍', paid: '🛍', accepted: '✅', packing: '📦', shipped: '🚚', delivered: '🏁', canceled: '✖️', expired: '⌛' };
+const MANAGER = process.env.MANAGER || 'flex_why';
 const TRACK_URL = {
   cdek: (n) => `https://www.cdek.ru/ru/tracking/?order_id=${encodeURIComponent(n)}`,
   post: (n) => `https://www.pochta.ru/tracking?barcode=${encodeURIComponent(n)}`,
@@ -159,8 +147,8 @@ async function setup() {
       ],
     });
   }
-  await api('setMyShortDescription', { short_description: 'SECOND GANG SHOP — архивные вещи. Оплата по СБП.' });
-  await api('setMyDescription', { description: 'SECOND GANG SHOP\n\nКаталог вещей прямо в Telegram: жми «Магазин» внизу, выбирай, оплачивай по СБП. Менеджер @flex_why отправит заказ.' });
+  await api('setMyShortDescription', { short_description: 'SECOND GANG SHOP — архивные вещи.' });
+  await api('setMyDescription', { description: `SECOND GANG SHOP\n\nКаталог вещей прямо в Telegram: жми «Магазин» внизу, выбирай и оформляй заказ. Менеджер @${MANAGER} напишет тебе, договоритесь об оплате и отправке.` });
   await setMenu();
 }
 
@@ -169,13 +157,13 @@ function adminText(o) {
   return `${EMOJI[o.status] || '🛍'} <b>Заказ ${esc(o.id)}</b> — ${esc(STATUS[o.status] || o.status)}\n\n` +
     itemsOf(o).map((i) => `• ${esc(i.title)}${i.size ? ` (${esc(i.size)})` : ''} — ${esc(i.price)} ₽`).join('\n') + '\n' +
     `Итого: <b>${esc(o.total)} ₽</b>\n` +
-    `⚠️ <b>ДЕМО-оплата: деньги НЕ поступали.</b> Не отправляй вещь, пока не увидишь деньги на счёте.\n\n` +
+    `💬 Оплаты в приложении нет — напиши покупателю и договорись об оплате.\n\n` +
     `ФИО: ${esc(o.name)}\nТел: ${esc(o.phone)}\n` +
     `Доставка: ${esc(o.delivery)}\nАдрес: ${esc(o.addr)}\n` +
     (o.comment ? `Комментарий: ${esc(o.comment)}\n` : '') +
     (o.track ? `\nТрек: <code>${esc(o.track)}</code>\n` : '') +
-    `\nПокупатель: ${o.username ? '@' + esc(o.username) : esc(o.firstName)} (id ${o.userId})\n` +
-    (o.status === 'expired' ? '\n<i>Демо-бронь истекла через 15 минут — вещь вернулась в каталог.</i>'
+    `\nПокупатель: ${o.username ? '@' + esc(o.username) : `<a href="tg://user?id=${o.userId}">${esc(o.firstName) || 'написать'}</a>`} (id ${o.userId})\n` +
+    (o.status === 'expired' ? ''
       : o.status === 'shipped' || o.status === 'delivered' || o.status === 'canceled' ? ''
       : '\n<i>Чтобы отправить трек-номер — ответь на это сообщение цифрами трека.</i>');
 }
@@ -393,7 +381,7 @@ const server = http.createServer(async (req, res) => {
         size: items[0].size, total: items.reduce((sum, i) => sum + i.price, 0),
         name: str(o.name, 120), phone: str(o.phone, 30), addr: str(o.addr, 300),
         delivery: str(o.delivery, 40), deliveryId: o.deliveryId, comment: str(o.comment, 500),
-        status: 'paid', track: '', createdAt: new Date().toISOString(),
+        status: 'new', track: '', createdAt: new Date().toISOString(),
       };
       orders.push(rec); save();
       rec.adminMsgs = [];
@@ -402,6 +390,11 @@ const server = http.createServer(async (req, res) => {
         if (msg) rec.adminMsgs.push({ chat: admin, msg: msg.message_id });
       }
       save();
+      await api('sendMessage', {
+        chat_id: rec.userId, parse_mode: 'HTML',
+        text: `🛍 Заказ <b>${esc(rec.id)}</b> оформлен\n${esc(rec.title)} — ${esc(rec.total)} ₽\n\nМенеджер @${MANAGER} напишет тебе, чтобы договориться об оплате и отправке.`,
+        reply_markup: { inline_keyboard: [[{ text: 'Открыть заказ', web_app: { url: appUrl(`#/order/${rec.id}`) } }]] },
+      });
       return json(200, pick(rec));
     } catch (e) {
       return json(400, { error: 'bad request' });
@@ -417,8 +410,6 @@ server.listen(PORT, () => console.log('listening on', PORT, WEBHOOK ? `вебх�
 setup().catch((e) => console.error('setup', e)).then(() => (WEBHOOK ? null : poll()));
 // Бесплатный Render засыпает без входящих запросов — пингуем себя раз в 10 минут.
 if (WEBHOOK) setInterval(() => fetch(publicUrl + '/health').catch(() => {}), 10 * 60e3);
-releaseDemoHolds();
-setInterval(() => releaseDemoHolds().catch((e) => console.error('holds', e)), 60e3);
 
 if (process.env.TUNNEL === '1' && !process.env.PUBLIC_URL) {
   startTunnel(PORT, (url) => {
