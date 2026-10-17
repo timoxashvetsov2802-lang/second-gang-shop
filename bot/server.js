@@ -7,6 +7,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import zlib from 'node:zlib';
 import { startTunnel } from './tunnel.js';
 import { importNew, autoProducts } from './channel.js';
 
@@ -80,7 +81,11 @@ async function restoreBackup() {
   } catch (e) { console.error('restore', e.message); }
 }
 const itemsOf = (o) => (o.items && o.items.length ? o.items : [{ productId: o.productId, title: o.title, size: o.size, price: o.total }]);
-const soldIds = () => new Set(orders.filter((o) => !['canceled', 'expired'].includes(o.status)).flatMap((o) => itemsOf(o).map((i) => i.productId)));
+// Скрытые админом товары (продано / убрали из магазина) — для покупателей они как проданные.
+const HIDDEN_FILE = new URL('./hidden.json', DATA_DIR);
+let hidden = new Set(fs.existsSync(HIDDEN_FILE) ? JSON.parse(fs.readFileSync(HIDDEN_FILE, 'utf8')) : []);
+const saveHidden = () => fs.writeFileSync(HIDDEN_FILE, JSON.stringify([...hidden]));
+const soldIds = () => new Set(orders.filter((o) => !['canceled', 'expired'].includes(o.status)).flatMap((o) => itemsOf(o).map((i) => i.productId)).concat([...hidden]));
 const findOrder = (id) => orders.find((o) => o.id.toUpperCase() === String(id).toUpperCase());
 
 // paid и expired остались от старой демо-оплаты — чтобы старые заказы показывались нормально.
@@ -344,8 +349,64 @@ function staticFile(rawUrl) {
   const ok = ROOT_FILES.has(path) || (/^img\/[\w/.-]+$/.test(path) && ['jpg', 'jpeg', 'png', 'webp', 'svg'].includes(ext));
   if (!ok) return null;
   const url = new URL(path, SHOP_DIR);
-  try { if (!fs.statSync(url).isFile()) return null; } catch { return null; }
-  return { url, ext };
+  let stat;
+  try { stat = fs.statSync(url); if (!stat.isFile()) return null; } catch { return null; }
+  return { url, ext, stat };
+}
+
+// Каждый запрос через туннель — это 0,3–0,6 с, поэтому страницу отдаём одним файлом:
+// стили, каталог (data.js + товары из каналов) и скрипт вшиты прямо в index.html.
+let bundle = { key: '', etag: '', raw: null, gz: null };
+function sendBundle(req, res) {
+  const read = (f) => fs.readFileSync(new URL(f, SHOP_DIR), 'utf8');
+  const parts = ['index.html', 'style.css', 'data.js', 'app.js'].map((f) => fs.statSync(new URL(f, SHOP_DIR)).mtimeMs);
+  const autoJs = `window.PRODUCTS.push(...${JSON.stringify(autoProducts())});`;
+  const key = parts.join() + ':' + crypto.createHash('md5').update(autoJs).digest('hex');
+  if (bundle.key !== key) {
+    const js = (s) => s.replace(/<\/script/gi, '<\\/script');
+    const html = read('index.html')
+      .replace(/<link rel="stylesheet" href="style\.css[^"]*">/, () => `<style>${read('style.css')}</style>`)
+      .replace(/<script src="data\.js[^"]*"><\/script>/, () => `<script>${js(read('data.js'))}</script>`)
+      .replace(/<script src="auto\.js"><\/script>/, () => `<script>${js(autoJs)}</script>`)
+      .replace(/<script src="app\.js[^"]*"><\/script>/, () => `<script>${js(read('app.js'))}</script>`);
+    const raw = Buffer.from(html);
+    bundle = { key, etag: `"b-${crypto.createHash('md5').update(raw).digest('hex').slice(0, 16)}"`, raw, gz: zlib.gzipSync(raw, { level: 9 }) };
+  }
+  res.setHeader('Content-Type', MIME.html);
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('ETag', bundle.etag);
+  res.setHeader('Vary', 'Accept-Encoding');
+  if (req.headers['if-none-match'] === bundle.etag) { res.statusCode = 304; return res.end(); }
+  const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+  const body = gz ? bundle.gz : bundle.raw;
+  if (gz) res.setHeader('Content-Encoding', 'gzip');
+  res.setHeader('Content-Length', body.length);
+  res.end(req.method === 'HEAD' ? undefined : body);
+}
+
+// Туннель рвёт ответы без длины (chunked), поэтому отдаём файл целиком с Content-Length.
+// Текст жмём gzip и держим в памяти; ETag даёт 304, чтобы повторно не качать то, что уже есть.
+const gzCache = new Map();
+function sendFile(req, res, { url, ext, stat }) {
+  const text = ['html', 'js', 'css', 'svg'].includes(ext);
+  const etag = `"${stat.size.toString(36)}-${Math.floor(stat.mtimeMs).toString(36)}"`;
+  res.setHeader('Content-Type', MIME[ext]);
+  // Страницу и скрипты каждый раз сверяем (ETag), чтобы правки сразу доходили; фото кэшируем на неделю.
+  res.setHeader('Cache-Control', text && ext !== 'svg' ? 'no-cache' : 'public, max-age=604800');
+  res.setHeader('ETag', etag);
+  if (req.headers['if-none-match'] === etag) { res.statusCode = 304; return res.end(); }
+  let body;
+  if (text && /\bgzip\b/.test(req.headers['accept-encoding'] || '')) {
+    const k = url.href;
+    if (gzCache.get(k)?.etag !== etag) gzCache.set(k, { etag, buf: zlib.gzipSync(fs.readFileSync(url), { level: 9 }) });
+    body = gzCache.get(k).buf;
+    res.setHeader('Content-Encoding', 'gzip');
+    res.setHeader('Vary', 'Accept-Encoding');
+  } else {
+    body = fs.readFileSync(url);
+  }
+  res.setHeader('Content-Length', body.length);
+  res.end(req.method === 'HEAD' ? undefined : body);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -381,6 +442,27 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url === '/sold') {
     return json(200, [...soldIds()]);
+  }
+
+  // Мини-аппка спрашивает, админ ли открыл её — тогда показывает кнопки «Убрать / Вернуть».
+  if (req.method === 'GET' && req.url === '/me') {
+    return json(200, { admin: !!user && isAdminId(user.id) });
+  }
+
+  // Админ убирает товар из магазина или возвращает его: { id, hidden: true|false }.
+  if (req.method === 'POST' && req.url === '/hide') {
+    if (!user || !isAdminId(user.id)) return json(403, { error: 'admins only' });
+    let body = '';
+    for await (const chunk of req) { body += chunk; if (body.length > 2e3) return json(413, { error: 'too large' }); }
+    try {
+      const { id, hidden: hide } = JSON.parse(body);
+      const pid = str(id, 80);
+      if (!pid) return json(400, { error: 'bad id' });
+      hide ? hidden.add(pid) : hidden.delete(pid);
+      saveHidden();
+      console.log(new Date().toISOString(), hide ? 'скрыт' : 'возвращён', pid, 'админом', user.id);
+      return json(200, [...soldIds()]);
+    } catch { return json(400, { error: 'bad request' }); }
   }
 
   if (req.method === 'GET' && req.url === '/orders') {
@@ -431,14 +513,9 @@ const server = http.createServer(async (req, res) => {
     }
   }
   if (req.method === 'GET' || req.method === 'HEAD') {
+    if (/^\/(index\.html)?(\?.*)?$/.test(req.url)) return sendBundle(req, res);
     const file = staticFile(req.url);
-    if (file) {
-      res.setHeader('Content-Type', MIME[file.ext]);
-      // Страницу и скрипты не кэшируем, чтобы правки сразу доходили до покупателей; фото — на сутки.
-      res.setHeader('Cache-Control', file.ext === 'html' || file.ext === 'js' || file.ext === 'css' ? 'no-cache' : 'public, max-age=86400');
-      if (req.method === 'HEAD') return res.end();
-      return fs.createReadStream(file.url).on('error', () => res.end()).pipe(res);
-    }
+    if (file) return sendFile(req, res, file);
   }
   json(404, { error: 'not found' });
 });

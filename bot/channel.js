@@ -2,6 +2,8 @@
 // с ценой и фото становится товаром в магазине. Фото скачиваются в img/auto/, товары — в data/auto-products.json.
 // Старые посты не трогаем: импортируются только посты новее последнего, что уже есть в каталоге.
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 export const CHANNELS = ['secondgangg', 'secondgang2'];
 const SHOP_DIR = new URL('../', import.meta.url);
@@ -117,6 +119,10 @@ export async function importNew(baseProducts) {
       }
       delete item.src;
       if (!item.photos.length) continue;
+      // Лёгкие превью для каталога (img/t/...). Нет Python — аппка сама возьмёт полное фото.
+      const py = spawnSync('python', [fileURLToPath(new URL('tools/thumbs.py', SHOP_DIR)),
+        ...item.photos.map((rel) => fileURLToPath(new URL(rel, SHOP_DIR)))], { timeout: 60e3, windowsHide: true });
+      if (py.status !== 0) console.error('превью', post.post, String(py.stderr || py.error || '').slice(0, 200));
       takenIds.add(item.id); seenKeys.add(key(item.title));
       auto.push(item); added.push(item);
     }

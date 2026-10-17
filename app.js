@@ -34,7 +34,8 @@
   const okApi = (u) => typeof u === 'string' && /^https:\/\/[a-z0-9-]+\.(lhr\.life|onrender\.com)$/.test(u);
   if (okApi(apiParam)) store.set('sg_api', apiParam);
   const stored = store.get('sg_api', '');
-  const API = (okApi(apiParam) ? apiParam : okApi(stored) ? stored : '') || S.api || '';
+  // Если аппку раздаёт сам сервер бота, он же и API.
+  const API = (okApi(apiParam) ? apiParam : okApi(location.origin) ? location.origin : okApi(stored) ? stored : '') || S.api || '';
 
   // ---------- helpers ----------
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -73,17 +74,21 @@
     </div>`;
   const initials = (b) => b.split(/[\s.]+/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   const thumbImg = (p) => !p ? '<div class="noph-mini">SG</div>'
-    : p.photos.length ? `<img src="${esc(p.photos[0])}" alt="">` : `<div class="noph-mini">${esc(initials(p.brand))}</div>`;
+    : p.photos.length ? `<img src="${esc(thumb(p.photos[0]))}" alt="" decoding="async" onerror="this.onerror=null;this.src='${esc(p.photos[0])}'">` : `<div class="noph-mini">${esc(initials(p.brand))}</div>`;
   const favBtn = (id) => `<button class="fav ${favs.has(id) ? 'on' : ''}" data-fav="${esc(id)}" aria-label="В избранное">${I.heart}</button>`;
   const backLink = (href, label = 'Назад') => `<a class="back" href="${href}">${I.back}${label}</a>`;
 
-  const card = (p) => `
-    <a class="card fade" href="#/p/${esc(p.id)}">
+  // Превью для каталога (img/t/...) в 5 раз легче полного фото; если превью нет — берём полное.
+  const thumb = (src) => src.replace(/^img\//, 'img/t/');
+  const thumbImgTag = (src, alt, eager) => `<img src="${esc(thumb(src))}" alt="${esc(alt)}" ${eager ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async" width="340" height="453" onerror="this.onerror=null;this.src='${esc(src)}'">`;
+
+  const card = (p, i = 99) => `
+    <a class="card ${isSold(p.id) ? 'hidden-item' : ''}" href="#/p/${esc(p.id)}">
       <div class="ph">
-        ${p.photos.length ? `<img src="${esc(p.photos[0])}" alt="${esc(p.title)}" loading="lazy">` : noPhoto(p)}
+        ${p.photos.length ? thumbImgTag(p.photos[0], p.title, i < 4) : noPhoto(p)}
         ${favBtn(p.id)}
         ${p.size ? `<span class="size">${esc(p.size)}</span>` : ''}
-        ${p.preorder ? '<span class="pre">под заказ</span>' : ''}
+        ${isSold(p.id) ? '<span class="pre">скрыто</span>' : p.preorder ? '<span class="pre">под заказ</span>' : ''}
       </div>
       <div class="price">${rub(p.price)}</div>
       <div class="title">${esc(p.title)}</div>
@@ -103,18 +108,41 @@
   const saveCart = () => store.set('sg_cart', cart);
   const cartProducts = () => cart.map(byId).filter((p) => p && !isSold(p.id));
   const inCart = (id) => cart.includes(id);
+  const setSold = (list) => {
+    const next = new Set(list);
+    if ([...next].join() === [...sold].join()) return;
+    sold = next; store.set('sg_sold', [...sold]);
+    const route = location.hash.split('/')[1] || '';
+    if (['', 'fav', 'p'].includes(route)) { render.keepScroll = true; render(); }
+  };
   async function syncSold() {
     if (!API) return;
     try {
       const r = await fetch(API + '/sold');
-      if (!r.ok) return;
-      const next = new Set(await r.json());
-      if ([...next].join() !== [...sold].join()) {
-        sold = next; store.set('sg_sold', [...sold]);
-        const route = location.hash.split('/')[1] || '';
-        if (['', 'fav', 'p'].includes(route)) { render.keepScroll = true; render(); }
-      }
+      if (r.ok) setSold(await r.json());
     } catch (e) {}
+  }
+
+  // ---------- админ ----------
+  // Сервер проверяет подпись Telegram и говорит, админ ли это. Админ видит скрытые вещи
+  // и кнопку «Убрать из магазина» / «Вернуть в магазин» в карточке товара.
+  let isAdmin = false;
+  const initHeaders = () => ({ 'Content-Type': 'application/json', 'X-Init-Data': tg ? tg.initData : '' });
+  async function checkAdmin() {
+    if (!API || !inTg) return;
+    try {
+      const r = await fetch(API + '/me', { headers: initHeaders() });
+      if (r.ok && (await r.json()).admin) { isAdmin = true; render.keepScroll = true; render(); }
+    } catch (e) {}
+  }
+  async function setHidden(id, hide) {
+    try {
+      const r = await fetch(API + '/hide', { method: 'POST', headers: initHeaders(), body: JSON.stringify({ id, hidden: hide }) });
+      if (!r.ok) throw new Error(r.status);
+      setSold(await r.json());
+      haptic('medium'); toast(hide ? 'Убрано из магазина' : 'Вернули в магазин');
+      render.keepScroll = true; render();
+    } catch (e) { toast('Не получилось, попробуй ещё раз'); }
   }
 
   // «Купить» открывает личку продавца с уже написанным сообщением — оплату и доставку обсуждают там.
@@ -128,7 +156,7 @@
 
   // ---------- views ----------
   function home() {
-    const list = window.PRODUCTS.filter((p) => !isSold(p.id) &&
+    const list = window.PRODUCTS.filter((p) => (isAdmin || !isSold(p.id)) &&
       (cat === 'Все' || p.category === cat) &&
       (!query || (p.title + ' ' + p.brand).toLowerCase().includes(query.toLowerCase()))
     ).sort((a, b) => b.added.localeCompare(a.added));
@@ -136,7 +164,7 @@
     return `
       <header class="top">
         <div class="brand">
-          <button class="avatar-btn" data-menu aria-label="Открыть меню"><img src="img/logo.jpg" alt="SECOND GANG SHOP"></button>
+          <button class="avatar-btn" data-menu aria-label="Открыть меню"><img src="img/logo-s.jpg" alt="SECOND GANG SHOP"></button>
           <div class="grow"><b>${esc(S.name)}</b><small>shop · ${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')} в наличии</small></div>
           <a class="icon-btn" href="#/cart" aria-label="Корзина">${I.bag}${cartProducts().length ? `<i class="num">${cartProducts().length}</i>` : ''}</a>
         </div>
@@ -144,7 +172,7 @@
       </header>
       <div class="chips">${window.CATEGORIES.map((c) => `<button class="chip ${c === cat ? 'on' : ''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}</div>
       <div class="section-head"><h2>${query ? 'Результаты' : 'Свежее'}</h2><span>${list.length} ${plural(list.length, 'вещь', 'вещи', 'вещей')}</span></div>
-      ${list.length ? `<div class="grid">${list.map(card).join('')}</div>`
+      ${list.length ? `<div class="grid">${list.map((p, i) => card(p, i)).join('')}</div>`
         : `<div class="empty"><b>Ничего не нашли</b>Попробуй другой бренд или категорию</div>`}
       <div class="swipe-hint">Свайп от левого края или тап по аватарке — меню</div>
     `;
@@ -158,11 +186,11 @@
     return `
       <div class="gallery">
         ${p.photos.length ? `
-        <div class="slides" id="slides">${p.photos.map((src, i) => `<img src="${esc(src)}" alt="${esc(p.title)} — фото ${i + 1}">`).join('')}</div>
+        <div class="slides" id="slides">${p.photos.map((src, i) => `<img src="${esc(src)}" alt="${esc(p.title)} — фото ${i + 1}" decoding="async" ${i ? 'loading="lazy"' : 'fetchpriority="high"'}>`).join('')}</div>
         <div class="dots" id="dots">${p.photos.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : noPhoto(p, true)}
         ${favBtn(p.id)}
       </div>
-      ${p.photos.length > 1 ? `<div class="thumbs" id="thumbs">${p.photos.map((src, i) => `<img src="${esc(src)}" data-i="${i}" class="${i ? '' : 'on'}" alt="">`).join('')}</div>` : ''}
+      ${p.photos.length > 1 ? `<div class="thumbs" id="thumbs">${p.photos.map((src, i) => `<img src="${esc(thumb(src))}" data-i="${i}" class="${i ? '' : 'on'}" alt="" decoding="async" onerror="this.onerror=null;this.src='${esc(src)}'">`).join('')}</div>` : ''}
       <div class="pinfo">
         ${badge ? `<span class="pbadge">${badge}</span>` : ''}
         <h1>${esc(p.title)}</h1>
@@ -174,6 +202,7 @@
         ${p.sizeNote ? `<div class="fact-note">${esc(p.sizeNote)}</div>` : ''}
         ${p.desc ? `<blockquote class="quote">${esc(p.desc)}</blockquote>` : ''}
         <a class="ask" href="#" data-ask="${esc(p.id)}">${I.chat}<span class="grow">Задать вопрос @${esc(S.manager)}</span>${I.arrow}</a>
+        ${isAdmin ? `<button class="btn outline wide admin-btn" data-hide="${esc(p.id)}" data-to="${gone ? '0' : '1'}">${gone ? 'Вернуть в магазин' : 'Убрать из магазина'}</button>` : ''}
       </div>
       <div class="actionbar">
         <button class="btn ghost ${favs.has(p.id) ? 'on' : ''}" data-fav="${esc(p.id)}" aria-label="В избранное">${I.heart}</button>
@@ -206,7 +235,7 @@
     const list = window.PRODUCTS.filter((p) => favs.has(p.id));
     return `
       <div class="ptop">${backLink('#/')}<h1>Избранное</h1><p>${list.length ? list.length + ' ' + plural(list.length, 'вещь', 'вещи', 'вещей') : 'Жми на сердечко, чтобы не потерять вещь'}</p></div>
-      ${list.length ? `<div class="grid" style="padding-top:12px">${list.map(card).join('')}</div>`
+      ${list.length ? `<div class="grid" style="padding-top:12px">${list.map((p, i) => card(p, i)).join('')}</div>`
         : `<div class="empty"><b>Пока пусто</b>Сохраняй вещи, которые понравились<br><a class="btn" href="#/">В каталог</a></div>`}
     `;
   }
@@ -249,7 +278,7 @@
       `<a href="${href}" class="${route === r ? 'on' : ''}">${icon}<span class="grow">${label}</span>${count ? `<i class="num">${count}</i>` : ''}</a>`;
     return `
       <div class="d-head">
-        <img src="img/logo.jpg" alt="SECOND GANG SHOP">
+        <img src="img/logo-s.jpg" alt="SECOND GANG SHOP">
         <b>${esc(S.name)}</b>
         <small>shop</small>
       </div>
@@ -363,7 +392,7 @@
 
   // ---------- global clicks ----------
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-fav],[data-cat],[data-ask],[data-menu],[data-addcart],[data-rmcart],[data-buy],[data-ext]');
+    const t = e.target.closest('[data-fav],[data-cat],[data-ask],[data-menu],[data-addcart],[data-rmcart],[data-buy],[data-hide],[data-ext]');
     if (!t) return;
     if (t.dataset.fav) {
       e.preventDefault(); e.stopPropagation();
@@ -388,6 +417,12 @@
       e.preventDefault();
       const p = byId(t.dataset.ask);
       openLink(`https://t.me/${S.manager}?text=${encodeURIComponent('Здравствуйте! Интересует ' + p.title + (p.size ? ' (' + p.size + ')' : '') + ' за ' + rub(p.price))}`);
+    } else if (t.dataset.hide) {
+      const hide = t.dataset.to === '1';
+      const id = t.dataset.hide;
+      // Подтверждение — встроенным окном Telegram (обычный confirm в мини-аппке не работает).
+      if (hide && tg && inTg && tg.showConfirm) tg.showConfirm('Убрать вещь из магазина? Её можно будет вернуть.', (ok) => ok && setHidden(id, true));
+      else setHidden(id, hide);
     } else if (t.dataset.buy) {
       const list = t.dataset.buy === 'cart' ? cartProducts() : [byId(t.dataset.buy)].filter(Boolean);
       if (list.length) writeSeller(list);
@@ -404,8 +439,15 @@
   (() => {
     const intro = document.getElementById('intro');
     if (!intro) return;
-    setTimeout(() => { intro.classList.add('out'); setTimeout(() => intro.remove(), 500); }, 3000);
+    // Заставка не держит дольше нужного: уходит, как только каталог готов (не раньше 0,5 с, не позже 1,2 с).
+    let gone = false;
+    const hide = () => { if (gone) return; gone = true; intro.classList.add('out'); setTimeout(() => intro.remove(), 450); };
+    const min = new Promise((r) => setTimeout(r, 500));
+    const ready = new Promise((r) => (document.readyState === 'complete' ? r() : window.addEventListener('load', r)));
+    Promise.all([min, ready]).then(hide);
+    setTimeout(hide, 1200);
   })();
   render();
   syncSold();
+  checkAdmin();
 })();
