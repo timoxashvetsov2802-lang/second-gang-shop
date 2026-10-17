@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import { startTunnel } from './tunnel.js';
+import { importNew, autoProducts } from './channel.js';
 
 const TOKEN = process.env.BOT_TOKEN;
 const ADMINS = (process.env.ADMIN_IDS || process.env.ADMIN_ID || '').split(',').map((x) => Number(x.trim())).filter(Boolean);
@@ -371,6 +372,13 @@ const server = http.createServer(async (req, res) => {
   const json = (code, body) => { res.statusCode = code; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(body)); };
 
   // Проданные вещи: всё, что оплачено и не отменено. Мини-аппка прячет их из каталога.
+  // Товары, которые бот сам добавил из новых постов каналов (подключается в index.html после data.js).
+  if (req.method === 'GET' && req.url.split('?')[0] === '/auto.js') {
+    res.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    return res.end(`window.PRODUCTS.push(...${JSON.stringify(autoProducts()).replace(/</g, '\\u003c')});`);
+  }
+
   if (req.method === 'GET' && req.url === '/sold') {
     return json(200, [...soldIds()]);
   }
@@ -440,6 +448,20 @@ await restoreBackup().catch((e) => console.error('restore', e));
 if (!backupMsgId && orders.length) scheduleBackup();
 server.listen(PORT, () => console.log('listening on', PORT, WEBHOOK ? `вебхук ${publicUrl}` : 'long polling'));
 setup().catch((e) => console.error('setup', e)).then(() => (WEBHOOK ? null : poll()));
+
+// Новые посты в каналах → товары в магазине. Проверяем раз в 5 минут и пишем админам, что добавили.
+async function syncChannels() {
+  const sandbox = { window: {} };
+  vm.runInNewContext(fs.readFileSync(CATALOG_FILE, 'utf8'), sandbox, { timeout: 1000 });
+  const added = await importNew(sandbox.window.PRODUCTS || []);
+  if (!added.length) return;
+  console.log(new Date().toISOString(), 'добавлено из каналов:', added.map((p) => p.post).join(', '));
+  const text = '🆕 <b>Добавил в магазин</b>\n\n' + added.map((p) => `• ${esc(p.title)} — ${esc(p.price)} ₽`).join('\n');
+  for (const admin of ADMINS) await api('sendMessage', { chat_id: admin, text, parse_mode: 'HTML', disable_notification: true });
+}
+const runSync = () => syncChannels().catch((e) => console.error(new Date().toISOString(), 'каналы:', e.message));
+runSync();
+setInterval(runSync, 5 * 60e3);
 // Бесплатный Render засыпает без входящих запросов — пингуем себя раз в 10 минут.
 if (WEBHOOK) setInterval(() => fetch(publicUrl + '/health').catch(() => {}), 10 * 60e3);
 
