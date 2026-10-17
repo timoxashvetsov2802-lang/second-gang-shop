@@ -26,11 +26,7 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   };
   let favs = new Set(store.get('sg_favs', []));
-  // Неоплаченные заказы старой версии (оплата СБП) больше не нужны.
-  let orders = store.get('sg_orders', []).filter((o) => o.status !== 'awaiting');
   const saveFavs = () => store.set('sg_favs', [...favs]);
-  const saveOrders = () => store.set('sg_orders', orders);
-  const draft = store.get('sg_contact', {});
 
   // Адрес сервера бота приходит параметром ?api= из кнопки бота (адрес туннеля меняется).
   const apiParam = new URLSearchParams(location.search).get('api');
@@ -46,29 +42,11 @@
   const byId = (id) => window.PRODUCTS.find((p) => p.id === id);
   const go = (h) => { location.hash = h; };
   const haptic = (t = 'light') => { try { tg.HapticFeedback.impactOccurred(t); } catch (e) {} };
-  const notify = (t) => { try { tg.HapticFeedback.notificationOccurred(t); } catch (e) {} };
   const plural = (n, a, b, c) => { const m = n % 10, h = n % 100; return m === 1 && h !== 11 ? a : m >= 2 && m <= 4 && (h < 10 || h >= 20) ? b : c; };
-  const ago = (iso) => {
-    const d = new Date(iso), now = new Date();
-    const days = Math.floor((now - d) / 864e5);
-    const hm = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
-    if (days <= 0 && now.getDate() === d.getDate()) return 'сегодня в ' + hm;
-    if (days <= 1) return 'вчера в ' + hm;
-    return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
-  };
   const toast = (t) => {
     const el = document.getElementById('toast');
     el.textContent = t; el.classList.add('show');
     clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('show'), 1800);
-  };
-  const copy = async (text, btn) => {
-    try { await navigator.clipboard.writeText(text); }
-    catch (e) {
-      const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
-      ta.select(); document.execCommand('copy'); ta.remove();
-    }
-    notify('success'); toast('Скопировано');
-    if (btn) { btn.classList.add('done'); setTimeout(() => btn.classList.remove('done'), 1500); }
   };
   const openLink = (url) => {
     if (tg && inTg) { url.startsWith('https://t.me/') ? tg.openTelegramLink(url) : tg.openLink(url); }
@@ -81,26 +59,10 @@
     bag: '<svg viewBox="0 0 24 24"><path d="M5 7h14l-1 14H6zM9 7V5a3 3 0 0 1 6 0v2"/></svg>',
     home: '<svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"/></svg>',
     info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg>',
-    copy: '<svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>',
     chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg>',
     arrow: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
     back: '<svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>',
-    check: '<svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg>',
     cross: '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>',
-    loader: '<svg viewBox="0 0 24 24" class="spin"><path d="M12 3a9 9 0 1 0 9 9"/></svg>',
-    truck: '<svg viewBox="0 0 24 24"><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/></svg>',
-  };
-
-  // Статусы заказа: new ставит приложение при оформлении, остальные — админ в боте.
-  // paid и expired остались от старой демо-оплаты, чтобы старые заказы показывались нормально.
-  const STATUS = {
-    new: 'Оформлен', paid: 'Оформлен', accepted: 'Принят', packing: 'Собираем',
-    shipped: 'Отправлен', delivered: 'Доставлен', canceled: 'Отменён', expired: 'Бронь снята',
-  };
-  const FLOW = ['new', 'accepted', 'packing', 'shipped', 'delivered'];
-  const TRACK_URL = {
-    cdek: (n) => `https://www.cdek.ru/ru/tracking/?order_id=${encodeURIComponent(n)}`,
-    post: (n) => `https://www.pochta.ru/tracking?barcode=${encodeURIComponent(n)}`,
   };
 
   const noPhoto = (p, big) => `
@@ -132,10 +94,9 @@
   let cat = 'Все';
   let query = '';
 
-  // Проданные вещи (у всех покупателей) приходят с сервера бота и скрываются из каталога.
+  // Проданные вещи приходят с сервера бота и скрываются из каталога.
   let sold = new Set(store.get('sg_sold', []));
-  const orderIds = (o) => (o.items && o.items.length ? o.items.map((i) => i.productId) : [o.productId]);
-  const isSold = (id) => sold.has(id) || orders.some((o) => orderIds(o).includes(id) && !['awaiting', 'expired', 'canceled'].includes(o.status));
+  const isSold = (id) => sold.has(id);
 
   // Корзина: id вещей; проданные и пропавшие из каталога выкидываем.
   let cart = store.get('sg_cart', []);
@@ -156,7 +117,12 @@
     } catch (e) {}
   }
 
-  const activeOrders = () => orders.filter((o) => !['awaiting', 'expired', 'canceled', 'delivered'].includes(o.status)).length;
+  // «Купить» открывает личку продавца с уже написанным сообщением — оплату и доставку обсуждают там.
+  const itemLine = (p) => p.title + (p.size ? ' (' + p.size + ')' : '') + ' — ' + rub(p.price);
+  const buyText = (list) => list.length === 1
+    ? 'Здравствуйте! Хочу купить ' + itemLine(list[0])
+    : 'Здравствуйте! Хочу купить:\n' + list.map((p) => '• ' + itemLine(p)).join('\n') + '\nИтого: ' + rub(list.reduce((sum, p) => sum + p.price, 0));
+  const writeSeller = (list) => { haptic('medium'); openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(buyText(list))}`); };
 
   // ---------- views ----------
   function home() {
@@ -185,9 +151,8 @@
   function product(id) {
     const p = byId(id);
     if (!p) return notFound();
-    const mine = orders.find((o) => orderIds(o).includes(id) && !['awaiting', 'expired', 'canceled'].includes(o.status));
-    const gone = !mine && isSold(id);
-    const badge = mine ? 'Твой заказ' : gone ? 'Продано' : p.preorder ? 'Под заказ' : '';
+    const gone = isSold(id);
+    const badge = gone ? 'Продано' : p.preorder ? 'Под заказ' : '';
     return `
       <div class="gallery">
         ${p.photos.length ? `
@@ -210,10 +175,9 @@
       </div>
       <div class="actionbar">
         <button class="btn ghost ${favs.has(p.id) ? 'on' : ''}" data-fav="${esc(p.id)}" aria-label="В избранное">${I.heart}</button>
-        ${mine ? `<a class="btn" href="#/order/${esc(mine.id)}">Мой заказ · ${esc(STATUS[mine.status])}</a>`
-          : gone ? '<button class="btn" disabled>Продано</button>'
+        ${gone ? '<button class="btn" disabled>Продано</button>'
           : `${inCart(p.id) ? '<a class="btn outline" href="#/cart">В корзине</a>' : `<button class="btn outline" data-addcart="${esc(p.id)}">В корзину</button>`}
-             <button class="btn accent" id="buy">Купить</button>`}
+             <button class="btn accent" data-buy="${esc(p.id)}">Купить</button>`}
       </div>
     `;
   }
@@ -231,115 +195,8 @@
           <button class="rm" data-rmcart="${esc(p.id)}" aria-label="Убрать">${I.cross}</button>
         </div>`).join('')}</div>
       <div class="block"><div class="total big" style="margin:0;padding:0;border:0"><span>Итого</span><b>${rub(total)}</b></div></div>
-      <div class="actionbar"><a class="btn accent" href="#/checkout/cart">Оформить · ${rub(total)}</a></div>`
+      <div class="actionbar"><button class="btn accent" data-buy="cart">Купить · ${rub(total)}</button></div>`
       : `<div class="empty"><b>Корзина пуста</b>Добавляй вещи кнопкой «В корзину»<br><a class="btn" href="#/">В каталог</a></div>`}
-    `;
-  }
-
-  const fmtPhone = (digits) => {
-    const d = digits.slice(0, 10);
-    let s = '';
-    if (d.length) s = '(' + d.slice(0, 3);
-    if (d.length >= 3) s += ') ';
-    if (d.length > 3) s += d.slice(3, 6);
-    if (d.length > 6) s += '-' + d.slice(6, 8);
-    if (d.length > 8) s += '-' + d.slice(8, 10);
-    return s;
-  };
-
-  function checkout(id) {
-    const items = id === 'cart' ? cartProducts() : [byId(id)].filter((p) => p && !isSold(p.id));
-    if (!items.length) return notFound();
-    const total = items.reduce((sum, p) => sum + p.price, 0);
-    const d = draft;
-    const del = S.delivery.some((x) => x.id === d.delivery) ? d.delivery : S.delivery[0].id;
-    return `
-      <div class="ptop">${backLink(id === 'cart' ? '#/cart' : '#/p/' + esc(id))}<h1>Оформление</h1><p>Данные для доставки — менеджер свяжется с тобой для оплаты</p></div>
-      <div class="block">
-        ${items.map((p) => `
-        <div class="mini">
-          ${thumbImg(p)}
-          <div class="grow"><b>${esc(p.title)}</b><small>${p.size ? 'Размер ' + esc(p.size) + ' · ' : ''}${esc(p.condition)}</small></div>
-          <div class="p">${rub(p.price)}</div>
-        </div>`).join('<div class="sep"></div>')}
-      </div>
-      <div class="block">
-        <h3>Получатель</h3>
-        <label class="field" data-f="name">
-          <span>ФИО как в паспорте</span>
-          <input id="f-name" value="${esc(d.name || '')}" placeholder="Иванов Иван Иванович" autocomplete="name" autocapitalize="words">
-          <em class="hint">Фамилия, имя и отчество кириллицей — их проверят при выдаче</em>
-        </label>
-        <label class="field" data-f="phone">
-          <span>Телефон</span>
-          <div class="phone"><b>+7</b><input id="f-phone" type="tel" inputmode="numeric" value="${esc(fmtPhone((d.phoneDigits || '')))}" placeholder="(900) 123-45-67" autocomplete="tel-national"></div>
-          <em class="hint">Только российский мобильный: +7 и 10 цифр, начинается с 9</em>
-        </label>
-      </div>
-      <div class="block">
-        <h3>Доставка</h3>
-        <div class="opts" id="delivery">
-          ${S.delivery.map((x) => `<button class="opt ${x.id === del ? 'on' : ''}" data-del="${x.id}"><span class="r"></span><span class="grow"><b>${esc(x.title)}${x.best ? '<em class="best">Лучший вариант</em>' : ''}</b><small>${esc(x.note)}</small></span></button>`).join('')}
-        </div>
-        <label class="field" data-f="addr" style="margin-top:12px">
-          <span id="addr-lbl">Город и адрес пункта выдачи</span>
-          <input id="f-addr" value="${esc(d.addr || '')}" placeholder="Москва, ул. Тверская, 1">
-          <em class="hint">Укажи город и точный адрес</em>
-        </label>
-        <label class="field"><span>Комментарий</span><textarea id="f-comment" rows="2" placeholder="Необязательно"></textarea></label>
-      </div>
-      <div class="block">
-        <div class="total"><span>${items.length > 1 ? 'Вещей: ' + items.length : 'Товар'}</span><b>${rub(total)}</b></div>
-        <div class="total"><span>Доставка</span><b>по тарифу службы</b></div>
-        <div class="total big"><span>Итого</span><b>${rub(total)}</b></div>
-      </div>
-      <div class="actionbar"><button class="btn accent" id="to-order">Оформить заказ · ${rub(total)}</button></div>
-    `;
-  }
-
-  function orderView(orderId) {
-    const o = orders.find((x) => x.id === orderId);
-    if (!o) return notFound();
-    const bad = ['expired', 'canceled'].includes(o.status);
-    const idx = FLOW.indexOf(o.status === 'paid' ? 'new' : o.status);
-    const trackUrl = o.track && TRACK_URL[o.deliveryId] ? TRACK_URL[o.deliveryId](o.track) : '';
-    return `
-      <div class="status fade">
-        <div class="ic">${bad ? I.cross : o.status === 'shipped' ? I.truck : I.check}</div>
-        <h1>${esc(STATUS[o.status] || o.status)}</h1>
-        <p>${bad ? (o.status === 'expired' ? 'Бронь на вещь истекла через 15 минут. Оформи заново, если она ещё в наличии.' : 'Заказ отменён. Если есть вопросы — напиши менеджеру.')
-          : o.status === 'shipped' ? `Заказ ${esc(o.id)} в пути. Трек-номер ниже.`
-          : o.status === 'delivered' ? `Заказ ${esc(o.id)} доставлен. Спасибо, что с нами!`
-          : ['new', 'paid'].includes(o.status) ? `Заказ ${esc(o.id)} на ${rub(o.total)} отправлен продавцу. Менеджер напишет тебе в Telegram, чтобы договориться об оплате.`
-          : `Заказ ${esc(o.id)} на ${rub(o.total)}. Статус обновится здесь и придёт сообщением от бота.`}</p>
-      </div>
-      ${bad ? '' : `
-      <div class="block">
-        <h3>Где заказ</h3>
-        <ol class="track">
-          ${FLOW.map((s, i) => `<li class="${i <= idx ? 'on' : ''} ${i === idx ? 'now' : ''}"><i></i><span>${esc(STATUS[s])}</span></li>`).join('')}
-        </ol>
-        ${o.track ? `
-        <div class="req first trackno">
-          <div class="grow"><small>Трек-номер · ${esc(o.delivery)}</small><b>${esc(o.track)}</b></div>
-          <button class="copy" data-copy="${esc(o.track)}">${I.copy}<span>Копировать</span></button>
-        </div>
-        ${trackUrl ? `<a class="btn outline wide" href="${esc(trackUrl)}" data-ext>${I.truck}Отследить на сайте ${esc(o.delivery)}</a>` : ''}` : `<div class="sub" style="margin-top:4px">Трек-номер появится, когда заказ передадут в ${esc(o.delivery)}</div>`}
-      </div>`}
-      <div class="block">
-        ${(o.items && o.items.length ? o.items : [{ productId: o.productId, title: o.title, price: o.total }]).map((i) => `
-        <div class="order">
-          ${thumbImg(byId(i.productId))}
-          <div class="grow"><b>${esc(i.title)}</b><small>${i.size ? esc(i.size) : ''}</small></div>
-          <b>${rub(i.price)}</b>
-        </div>`).join('<div class="sep"></div>')}
-        <div class="sep"></div>
-        <div class="sub">${esc(o.name)} · ${esc(o.phone)}<br>${esc(o.delivery)} · ${esc(o.addr)}</div>
-      </div>
-      <div class="actionbar">
-        ${bad ? `<a class="btn" href="#/p/${esc(o.productId)}">К товару</a>`
-          : `<button class="btn outline" data-manager="${esc(o.id)}">Менеджер</button><a class="btn" href="#/">В каталог</a>`}
-      </div>
     `;
   }
 
@@ -352,19 +209,6 @@
     `;
   }
 
-  function myOrders() {
-    return `
-      <div class="ptop">${backLink('#/')}<h1>Заказы</h1><p>Статусы обновляются автоматически</p></div>
-      ${orders.length ? `<div style="padding-top:12px">${orders.slice().reverse().map((o) => `
-        <a class="block order" href="#/order/${esc(o.id)}">
-          ${thumbImg(byId(o.productId))}
-          <div class="grow"><b>${esc(o.title)}</b><small>${esc(o.id)} · ${rub(o.total)}</small><small>${o.track ? 'трек ' + esc(o.track) : ago(o.createdAt)}</small></div>
-          <span class="badge ${['expired', 'canceled'].includes(o.status) ? '' : 'inv'}">${esc(STATUS[o.status] || o.status)}</span>
-        </a>`).join('')}</div>`
-        : `<div class="empty"><b>Заказов нет</b>Здесь появятся твои покупки<br><a class="btn" href="#/">В каталог</a></div>`}
-    `;
-  }
-
   function about() {
     return `
       <div class="ptop">${backLink('#/')}</div>
@@ -373,10 +217,9 @@
       <div class="block">
         <h3>Как купить</h3>
         <ol class="howto">
-          <li>Выбери вещь и нажми «Купить»</li>
-          <li>Укажи ФИО как в паспорте, телефон и пункт выдачи</li>
-          <li>Нажми «Оформить заказ» — менеджер напишет тебе в Telegram и договоритесь об оплате</li>
-          <li>Следи за заказом во вкладке «Заказы» — там появится трек-номер</li>
+          <li>Выбери вещь и нажми «Купить» — или собери несколько в корзину</li>
+          <li>Откроется чат с менеджером, сообщение с вещью уже написано — просто отправь</li>
+          <li>Договоритесь с менеджером об оплате и доставке</li>
         </ol>
       </div>
     `;
@@ -412,7 +255,6 @@
         ${item('#/', I.home, 'Каталог', '')}
         ${item('#/cart', I.bag, 'Корзина', 'cart', cartProducts().length)}
         ${item('#/fav', I.heart, 'Избранное', 'fav', favs.size)}
-        ${item('#/orders', I.truck, 'Мои заказы', 'orders', activeOrders())}
         ${item('#/about', I.info, 'О магазине', 'about')}
       </nav>
       <div class="d-links links">${linkRows()}</div>
@@ -464,53 +306,6 @@
     });
   })();
 
-  // ---------- orders ----------
-  function managerText(o) {
-    return `Здравствуйте! Вопрос по заказу ${o.id}\n` +
-      `${o.title} — ${rub(o.total)}\n` +
-      `Получатель: ${o.name}, ${o.phone}\n` +
-      `Доставка: ${o.delivery}, ${o.addr}` + (o.track ? `\nТрек: ${o.track}` : '');
-  }
-
-  const apiFetch = (path, opts = {}) => fetch(API + path, {
-    ...opts,
-    headers: { 'Content-Type': 'application/json', 'X-Init-Data': tg ? tg.initData : '', ...(opts.headers || {}) },
-  });
-
-  // true — заказ принят; false — вещь уже купил кто-то другой.
-  async function sendOrder(o) {
-    if (!API || !inTg) return 'ok';
-    try {
-      const r = await apiFetch('/order', { method: 'POST', body: JSON.stringify({ order: o }) });
-      return r.ok ? 'ok' : r.status === 409 ? 'sold' : r.status === 429 ? 'limit' : 'error';
-    } catch (e) { return 'error'; }
-  }
-
-  // Подтягиваем статусы и трек-номера, которые админ выставил в боте.
-  let syncing = false;
-  async function syncOrders() {
-    if (!API || !inTg || syncing) return;
-    syncing = true;
-    try {
-      const r = await apiFetch('/orders');
-      if (!r.ok) return;
-      const remote = await r.json();
-      let changed = false;
-      for (const ro of remote) {
-        const lo = orders.find((x) => x.id === ro.id);
-        if (lo) {
-          if (lo.status !== ro.status || lo.track !== ro.track) { lo.status = ro.status; lo.track = ro.track; changed = true; }
-        } else { orders.push(ro); changed = true; }
-      }
-      if (changed) {
-        saveOrders();
-        const route = location.hash.split('/')[1];
-        if (['orders', 'order', 'p', ''].includes(route || '')) { render.keepScroll = true; render(); }
-      }
-    } catch (e) { /* сервер недоступен — показываем то, что есть */ }
-    finally { syncing = false; }
-  }
-
   // ---------- router ----------
   const scrollMem = {};
   function render() {
@@ -520,27 +315,24 @@
     let html;
     switch (route) {
       case 'p': html = product(arg); break;
-      case 'checkout': html = checkout(arg); break;
-      case 'pay': location.replace('#/order/' + arg); return;
-      case 'order': case 'done': html = orderView(arg); break;
+      // Старые ссылки на оформление и заказы ведут в каталог.
+      case 'checkout': case 'pay': case 'order': case 'done': case 'orders': location.replace('#/'); return;
       case 'cart': html = cartView(); break;
       case 'fav': html = favorites(); break;
-      case 'orders': html = myOrders(); break;
       case 'about': html = about(); break;
       default: html = home();
     }
     $view.innerHTML = html;
     document.body.classList.toggle('has-bar', !!$view.querySelector('.actionbar'));
     if (tg) route ? tg.BackButton.show() : tg.BackButton.hide();
-    // Списки (каталог, избранное, корзина, заказы) открываются на том же месте, где ушли с них.
+    // Списки (каталог, избранное, корзина) открываются на том же месте, где ушли с них.
     const key = location.hash || '#/';
     if (render.keepScroll) { /* остаёмся где были */ }
-    else if (['', 'fav', 'cart', 'orders'].includes(route || '') && scrollMem[key] != null) window.scrollTo(0, scrollMem[key]);
+    else if (['', 'fav', 'cart'].includes(route || '') && scrollMem[key] != null) window.scrollTo(0, scrollMem[key]);
     else window.scrollTo(0, 0);
     render.keepScroll = false;
 
     if (route === 'p') bindGallery();
-    if (route === 'checkout') bindCheckout(arg);
     if (!route) bindHome();
   }
 
@@ -567,91 +359,9 @@
     thumbs.forEach((t) => t.addEventListener('click', () => slides.scrollTo({ left: slides.clientWidth * +t.dataset.i, behavior: 'smooth' })));
   }
 
-  // ФИО: каждое слово с заглавной, только кириллица и дефис, 2–3 слова.
-  const NAME_RE = /^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?( [А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?){1,2}$/;
-  const normName = (s) => s.replace(/\s+/g, ' ').trim().split(' ')
-    .map((w) => w.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('-')).join(' ');
-
-  function bindCheckout(id) {
-    const items = id === 'cart' ? cartProducts() : [byId(id)].filter(Boolean);
-    if (!items.length) return;
-    const lbl = document.getElementById('addr-lbl');
-    const setLbl = (d) => { lbl.textContent = d === 'post' ? 'Город, адрес и индекс' : 'Город и адрес пункта выдачи'; };
-    let del = S.delivery.some((x) => x.id === draft.delivery) ? draft.delivery : S.delivery[0].id;
-    setLbl(del);
-    document.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', () => {
-      del = b.dataset.del; haptic();
-      document.querySelectorAll('[data-del]').forEach((x) => x.classList.toggle('on', x === b));
-      setLbl(del);
-    }));
-
-    const name = document.getElementById('f-name');
-    name.addEventListener('input', () => { name.value = name.value.replace(/[^А-Яа-яЁё\s-]/g, ''); });
-    name.addEventListener('blur', () => { name.value = normName(name.value); });
-
-    const phone = document.getElementById('f-phone');
-    phone.addEventListener('input', () => {
-      let d = phone.value.replace(/\D/g, '');
-      if (d.length > 10 && (d[0] === '7' || d[0] === '8')) d = d.slice(1);
-      phone.value = fmtPhone(d);
-    });
-
-    const setErr = (f, bad) => document.querySelector(`.field[data-f="${f}"]`).classList.toggle('err', bad);
-    const btn = document.getElementById('to-order');
-    btn.addEventListener('click', async () => {
-      if (btn.disabled) return;
-      name.value = normName(name.value);
-      const digits = phone.value.replace(/\D/g, '');
-      const addr = document.getElementById('f-addr').value.trim();
-      const errs = {
-        name: !NAME_RE.test(name.value),
-        phone: !/^9\d{9}$/.test(digits),
-        addr: addr.length < 8 || !/\d/.test(addr),
-      };
-      Object.entries(errs).forEach(([f, b]) => setErr(f, b));
-      const first = Object.keys(errs).find((k) => errs[k]);
-      if (first) {
-        notify('error');
-        toast({ name: 'Проверь ФИО', phone: 'Проверь номер телефона', addr: 'Укажи полный адрес' }[first]);
-        document.querySelector(`.field[data-f="${first}"]`).scrollIntoView({ behavior: 'smooth', block: 'center' });
-        return;
-      }
-      const phoneStr = '+7 ' + fmtPhone(digits);
-      Object.assign(draft, { name: name.value, phoneDigits: digits, addr, delivery: del }); store.set('sg_contact', draft);
-      const o = {
-        id: 'SG-' + Math.random().toString(36).slice(2, 7).toUpperCase(),
-        src: id,
-        productId: items[0].id,
-        title: items[0].title + (items.length > 1 ? ` + ещё ${items.length - 1}` : ''),
-        items: items.map((p) => ({ productId: p.id, title: p.title, size: p.size, price: p.price })),
-        size: items[0].size, total: items.reduce((sum, p) => sum + p.price, 0),
-        name: name.value, phone: phoneStr, addr,
-        deliveryId: del, delivery: S.delivery.find((x) => x.id === del).title,
-        comment: document.getElementById('f-comment').value.trim(),
-        status: 'new', createdAt: new Date().toISOString(),
-      };
-      haptic('medium');
-      btn.disabled = true; btn.innerHTML = `${I.loader}<span>Отправляем заказ…</span>`;
-      const res = await sendOrder(o);
-      if (res === 'limit' || res === 'error') {
-        btn.disabled = false; btn.textContent = 'Оформить заказ · ' + rub(o.total); notify('error');
-        return toast(res === 'limit' ? 'Слишком много заказов, попробуй позже' : 'Не получилось оформить, попробуй ещё раз');
-      }
-      if (res === 'sold') {
-        orderIds(o).forEach((i) => sold.add(i));
-        notify('error'); toast('Кто-то уже купил вещь из заказа');
-        return location.replace('#/');
-      }
-      orders.push(o); saveOrders();
-      cart = cart.filter((c) => !orderIds(o).includes(c)); saveCart();
-      notify('success');
-      location.replace('#/order/' + o.id);
-    });
-  }
-
   // ---------- global clicks ----------
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-fav],[data-cat],[data-copy],[data-ask],[data-manager],[data-menu],[data-addcart],[data-rmcart],#buy,[data-ext]');
+    const t = e.target.closest('[data-fav],[data-cat],[data-ask],[data-menu],[data-addcart],[data-rmcart],[data-buy],[data-ext]');
     if (!t) return;
     if (t.dataset.fav) {
       e.preventDefault(); e.stopPropagation();
@@ -672,17 +382,13 @@
       setDrawer(true);
     } else if (t.dataset.cat) {
       cat = t.dataset.cat; haptic(); render.keepScroll = true; render();
-    } else if (t.dataset.copy) {
-      copy(t.dataset.copy, t);
     } else if (t.dataset.ask) {
       e.preventDefault();
       const p = byId(t.dataset.ask);
       openLink(`https://t.me/${S.manager}?text=${encodeURIComponent('Здравствуйте! Интересует ' + p.title + (p.size ? ' (' + p.size + ')' : '') + ' за ' + rub(p.price))}`);
-    } else if (t.dataset.manager) {
-      const o = orders.find((x) => x.id === t.dataset.manager);
-      openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(managerText(o))}`);
-    } else if (t.id === 'buy') {
-      haptic('medium'); go('#/checkout/' + location.hash.split('/')[2]);
+    } else if (t.dataset.buy) {
+      const list = t.dataset.buy === 'cart' ? cartProducts() : [byId(t.dataset.buy)].filter(Boolean);
+      if (list.length) writeSeller(list);
     } else if (t.hasAttribute('data-ext')) {
       e.preventDefault(); openLink(t.getAttribute('href'));
     }
@@ -691,16 +397,13 @@
   window.addEventListener('hashchange', (e) => {
     scrollMem[new URL(e.oldURL).hash || '#/'] = window.scrollY;
     if (drawerOpen) setDrawer(false, true);
-    render(); syncOrders(); syncSold();
+    render(); syncSold();
   });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) syncOrders(); });
-  setInterval(() => { if (/^#\/(order|orders)/.test(location.hash)) syncOrders(); }, 20000);
   (() => {
     const intro = document.getElementById('intro');
     if (!intro) return;
     setTimeout(() => { intro.classList.add('out'); setTimeout(() => intro.remove(), 500); }, 3000);
   })();
   render();
-  syncOrders();
   syncSold();
 })();

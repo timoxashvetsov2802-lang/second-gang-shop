@@ -148,7 +148,7 @@ async function setup() {
     });
   }
   await api('setMyShortDescription', { short_description: 'SECOND GANG SHOP — архивные вещи.' });
-  await api('setMyDescription', { description: `SECOND GANG SHOP\n\nКаталог вещей прямо в Telegram: жми «Магазин» внизу, выбирай и оформляй заказ. Менеджер @${MANAGER} напишет тебе, договоритесь об оплате и отправке.` });
+  await api('setMyDescription', { description: `SECOND GANG SHOP\n\nКаталог вещей прямо в Telegram: жми «Магазин» внизу, выбирай вещь и жми «Купить» — откроется чат с менеджером @${MANAGER}, там договоритесь об оплате и отправке.` });
   await setMenu();
 }
 
