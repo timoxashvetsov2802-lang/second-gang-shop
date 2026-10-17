@@ -118,8 +118,8 @@
   }
 
   // «Купить» открывает личку продавца с уже написанным сообщением — оплату и доставку обсуждают там.
-  // Ссылка на фото: Telegram покажет под сообщением превью с первой фоткой.
-  const photoLine = (p) => (p.photos.length ? '\nФото: ' + new URL(p.photos[0], location.href).href : '');
+  // Ссылка на пост вещи в канале: Telegram покажет его в чате вместе с фото.
+  const photoLine = (p) => (p.post ? '\nФото: https://t.me/' + p.post : '');
   const itemLine = (p) => p.title + (p.size ? ' (' + p.size + ')' : '') + ' — ' + rub(p.price);
   const buyText = (list) => list.length === 1
     ? 'Здравствуйте! Хочу купить ' + itemLine(list[0]) + photoLine(list[0])
