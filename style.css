@@ -9,8 +9,14 @@
   --invert-bg: #fff;
   --invert-text: #000;
   --radius: 14px;
-  --accent: #ff2e88;
-  --accent-ink: #fff;
+  /* Цвета с картинки заставки: красное небо, золотое солнце, кремовые облака. */
+  --red: #c8170e;
+  --red-deep: #821411;
+  --gold: #e8a53a;
+  --gold-light: #f6c766;
+  --cream: #f3e6c8;
+  --accent: var(--red);
+  --accent-ink: var(--cream);
   --safe-b: env(safe-area-inset-bottom, 0px);
   /* В фуллскрине Telegram рисует свои кнопки поверх страницы — отступаем от них */
   --safe-t: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
@@ -382,7 +388,7 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 .card.hidden-item .ph img, .card.hidden-item .price, .card.hidden-item .title { opacity: .4; }
 .admin-btn { margin-top: 16px; }
 
-/* ===== розовый акцент ===== */
+/* ===== акцент: красный и золото с картинки ===== */
 .btn.accent { background: var(--accent); color: var(--accent-ink); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .num, .icon-btn .num { background: var(--accent); color: #fff; }
@@ -438,15 +444,27 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 
 /* ===== заставка ===== */
 .intro {
-  position: fixed; inset: 0; z-index: 100; background: #fff;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
-  transition: opacity .45s ease, transform .45s ease;
+  position: fixed; inset: 0; z-index: 100; overflow: hidden;
+  background: #b50c07; /* пока грузится картинка — её красный */
+  transition: opacity .5s ease, transform .5s ease;
 }
-.intro img { max-width: 78vw; max-height: 70vh; object-fit: contain; animation: introPop .7s cubic-bezier(.2,.9,.3,1.2) both; }
-.intro b { font: 800 22px/1 Unbounded, sans-serif; color: #000; letter-spacing: .04em; animation: introUp .6s .35s ease both; }
-.intro.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
-@keyframes introPop { from { opacity: 0; transform: scale(.85) rotate(-3deg); } to { opacity: 1; transform: none; } }
-@keyframes introUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.intro picture, .intro img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.intro img { object-fit: cover; object-position: 50% 50%; animation: introZoom 3.2s ease-out both; }
+/* Надпись в свободном красном небе справа (между солнцем и журавлём). */
+.intro-title {
+  position: absolute; right: 3vw; top: 30.5vh; text-align: right;
+  font: 800 clamp(24px, 7vw, 42px)/1.02 Unbounded, 'Arial Black', Impact, sans-serif; letter-spacing: .02em;
+  color: var(--cream);
+  -webkit-text-stroke: clamp(2px, .7vw, 3.2px) var(--gold);
+  paint-order: stroke fill;
+  text-shadow: 0 3px 0 var(--red-deep), 0 6px 14px rgba(70, 0, 0, .45);
+  animation: introUp .7s .25s cubic-bezier(.2, .9, .3, 1.1) both;
+}
+.intro-title span { display: block; }
+.intro-title span + span { font-size: 1.32em; color: var(--gold-light); -webkit-text-stroke-color: var(--cream); }
+.intro.out { opacity: 0; transform: scale(1.03); pointer-events: none; }
+@keyframes introZoom { from { transform: scale(1.08); } to { transform: none; } }
+@keyframes introUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 
 /* аватарка: ровное розовое кольцо стилями, а не в картинке */
 .avatar-btn { border: 2.5px solid var(--accent); padding: 2px; background: #000; }
@@ -461,3 +479,19 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ===== цвета картинки в интерфейсе ===== */
+.top { border-bottom-color: rgba(232, 165, 58, .22); }
+.brand b { color: var(--cream); }
+.avatar-btn, .d-head img { border-color: var(--gold) !important; }
+.card .price, .pinfo .price { color: var(--gold-light); }
+.fav.on svg, .btn.ghost.on svg { fill: var(--gold) !important; stroke: var(--gold) !important; }
+.dots i.on { background: var(--gold) !important; }
+.thumbs img.on { border-color: var(--gold); }
+.chip.on { color: var(--cream) !important; }
+.btn.accent { background: linear-gradient(180deg, #d4200f, var(--red)); color: var(--cream); box-shadow: inset 0 0 0 1px rgba(246, 199, 102, .35); }
+.btn.outline { border-color: rgba(243, 230, 200, .55); color: var(--cream); }
+.section-head h2 { color: var(--cream); }
+.pbadge { color: var(--gold) !important; }
+.ask { border-color: rgba(232, 165, 58, .3); }
+.best { background: var(--red) !important; color: var(--cream) !important; }

@@ -5,15 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>SECOND GANG</title>
   <meta name="theme-color" content="#000000">
+  <link rel="preload" as="image" href="img/splash.webp" type="image/webp">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <!-- Шрифты не блокируют показ: пока грузятся, текст виден системным шрифтом. -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Unbounded:wght@600;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
-  <link rel="stylesheet" href="style.css?v=19">
+  <link rel="stylesheet" href="style.css?v=20">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <div class="intro" id="intro"><img src="img/intro-s.webp" alt=""><b>SECOND GANG</b></div>
+  <!-- Заставка: картинка журавлей, надпись в свободном красном небе справа. Тап — пропустить. -->
+  <div class="intro" id="intro">
+    <picture><source srcset="img/splash.webp" type="image/webp"><img src="img/splash.jpg" alt="" decoding="async" fetchpriority="high"></picture>
+    <b class="intro-title"><span>SECOND</span><span>GANG</span></b>
+  </div>
   <main id="view"></main>
 
   <div class="scrim" id="scrim"></div>
@@ -21,9 +26,9 @@
 
   <div class="toast" id="toast"></div>
 
-  <script src="data.js?v=19"></script>
+  <script src="data.js?v=20"></script>
   <!-- Новые товары из каналов и скрытые — бот обновляет live.js; ?t= чтобы всегда брать свежий. -->
   <script id="live-loader">document.write('<script src="live.js?t=' + Date.now() + '"><\/script>');</script>
-  <script src="app.js?v=19"></script>
+  <script src="app.js?v=20"></script>
 </body>
 </html>

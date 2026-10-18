@@ -440,13 +440,11 @@
   (() => {
     const intro = document.getElementById('intro');
     if (!intro) return;
-    // Заставка не держит дольше нужного: уходит, как только каталог готов (не раньше 0,5 с, не позже 1,2 с).
+    // Заставка с журавлями висит 3 секунды (каталог за это время грузится под ней); тап — пропустить.
     let gone = false;
-    const hide = () => { if (gone) return; gone = true; intro.classList.add('out'); setTimeout(() => intro.remove(), 450); };
-    const min = new Promise((r) => setTimeout(r, 500));
-    const ready = new Promise((r) => (document.readyState === 'complete' ? r() : window.addEventListener('load', r)));
-    Promise.all([min, ready]).then(hide);
-    setTimeout(hide, 1200);
+    const hide = () => { if (gone) return; gone = true; intro.classList.add('out'); setTimeout(() => intro.remove(), 500); };
+    setTimeout(hide, 3000);
+    intro.addEventListener('click', hide);
   })();
   render();
   syncSold();
