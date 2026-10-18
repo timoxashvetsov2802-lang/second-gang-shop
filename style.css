@@ -449,22 +449,30 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
   transition: opacity .5s ease, transform .5s ease;
 }
 .intro picture, .intro img { position: absolute; inset: 0; width: 100%; height: 100%; }
-.intro img { object-fit: cover; object-position: 50% 50%; animation: introZoom 3.2s ease-out both; }
-/* Надпись в свободном красном небе справа (между солнцем и журавлём). */
+.intro img { object-fit: cover; object-position: 50% 50%; }
+/* Надпись-«хамелеон»: блок на весь экран с той же картинкой, обрезанной по буквам, —
+   буквы совпадают с фоном пиксель в пиксель и выдают себя только тонкой обводкой и бегущим бликом.
+   Если webp не поддерживается, останется одна обводка. */
 .intro-title {
-  position: absolute; right: 3vw; top: 30.5vh; text-align: right;
-  font: 800 clamp(24px, 7vw, 42px)/1.02 Unbounded, 'Arial Black', Impact, sans-serif; letter-spacing: .02em;
-  color: var(--cream);
-  -webkit-text-stroke: clamp(2px, .7vw, 3.2px) var(--gold);
-  paint-order: stroke fill;
-  text-shadow: 0 3px 0 var(--red-deep), 0 6px 14px rgba(70, 0, 0, .45);
-  animation: introUp .7s .25s cubic-bezier(.2, .9, .3, 1.1) both;
+  position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 17vh; white-space: nowrap;
+  font: 800 clamp(28px, 9.6vw, 60px)/1 Unbounded, 'Arial Black', Impact, sans-serif; letter-spacing: .01em;
+  color: transparent; -webkit-text-fill-color: transparent;
+  background-image:
+    linear-gradient(105deg, transparent 42%, rgba(255, 236, 196, .75) 50%, transparent 58%),
+    linear-gradient(rgba(255, 228, 180, .14), rgba(255, 228, 180, .14)),
+    url(img/splash.webp);
+  background-size: 260% 100%, 100% 100%, cover;
+  background-position: 120% 0, 0 0, 50% 50%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-stroke: 1.1px rgba(246, 199, 102, .9);
+  filter: drop-shadow(0 1px 1px rgba(90, 0, 0, .55));
+  animation: introShine 2.4s .4s ease-in-out infinite, introFade .8s .2s ease both;
 }
-.intro-title span { display: block; }
-.intro-title span + span { font-size: 1.32em; color: var(--gold-light); -webkit-text-stroke-color: var(--cream); }
-.intro.out { opacity: 0; transform: scale(1.03); pointer-events: none; }
-@keyframes introZoom { from { transform: scale(1.08); } to { transform: none; } }
-@keyframes introUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+.intro.out { opacity: 0; pointer-events: none; }
+@keyframes introShine { 0% { background-position: 120% 0, 0 0, 50% 50%; } 100% { background-position: -20% 0, 0 0, 50% 50%; } }
+@keyframes introFade { from { opacity: 0; } to { opacity: 1; } }
 
 /* аватарка: ровное розовое кольцо стилями, а не в картинке */
 .avatar-btn { border: 2.5px solid var(--accent); padding: 2px; background: #000; }
