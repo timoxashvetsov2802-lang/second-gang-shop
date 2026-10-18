@@ -9,14 +9,8 @@
   --invert-bg: #fff;
   --invert-text: #000;
   --radius: 14px;
-  /* Цвета с картинки заставки: красное небо, золотое солнце, кремовые облака. */
-  --red: #c8170e;
-  --red-deep: #821411;
-  --gold: #e8a53a;
-  --gold-light: #f6c766;
-  --cream: #f3e6c8;
-  --accent: var(--red);
-  --accent-ink: var(--cream);
+  --accent: #ff2e88;
+  --accent-ink: #fff;
   --safe-b: env(safe-area-inset-bottom, 0px);
   /* В фуллскрине Telegram рисует свои кнопки поверх страницы — отступаем от них */
   --safe-t: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
@@ -388,7 +382,7 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 .card.hidden-item .ph img, .card.hidden-item .price, .card.hidden-item .title { opacity: .4; }
 .admin-btn { margin-top: 16px; }
 
-/* ===== акцент: красный и золото с картинки ===== */
+/* ===== розовый акцент ===== */
 .btn.accent { background: var(--accent); color: var(--accent-ink); }
 .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .num, .icon-btn .num { background: var(--accent); color: #fff; }
@@ -444,35 +438,15 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 
 /* ===== заставка ===== */
 .intro {
-  position: fixed; inset: 0; z-index: 100; overflow: hidden;
-  background: #b50c07; /* пока грузится картинка — её красный */
-  transition: opacity .5s ease, transform .5s ease;
+  position: fixed; inset: 0; z-index: 100; background: #000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  transition: opacity .45s ease, transform .45s ease;
 }
-.intro picture, .intro img { position: absolute; inset: 0; width: 100%; height: 100%; }
-.intro img { object-fit: cover; object-position: 50% 50%; }
-/* Надпись-«хамелеон»: блок на весь экран с той же картинкой, обрезанной по буквам, —
-   буквы совпадают с фоном пиксель в пиксель и выдают себя только тонкой обводкой и бегущим бликом.
-   Если webp не поддерживается, останется одна обводка. */
-.intro-title {
-  position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center;
-  padding-bottom: 17vh; white-space: nowrap;
-  font: 800 clamp(28px, 9.6vw, 60px)/1 Unbounded, 'Arial Black', Impact, sans-serif; letter-spacing: .01em;
-  color: transparent; -webkit-text-fill-color: transparent;
-  background-image:
-    linear-gradient(105deg, transparent 42%, rgba(255, 236, 196, .75) 50%, transparent 58%),
-    linear-gradient(rgba(255, 228, 180, .14), rgba(255, 228, 180, .14)),
-    url(img/splash.webp);
-  background-size: 260% 100%, 100% 100%, cover;
-  background-position: 120% 0, 0 0, 50% 50%;
-  background-repeat: no-repeat;
-  -webkit-background-clip: text; background-clip: text;
-  -webkit-text-stroke: 1.1px rgba(246, 199, 102, .9);
-  filter: drop-shadow(0 1px 1px rgba(90, 0, 0, .55));
-  animation: introShine 2.4s .4s ease-in-out infinite, introFade .8s .2s ease both;
-}
-.intro.out { opacity: 0; pointer-events: none; }
-@keyframes introShine { 0% { background-position: 120% 0, 0 0, 50% 50%; } 100% { background-position: -20% 0, 0 0, 50% 50%; } }
-@keyframes introFade { from { opacity: 0; } to { opacity: 1; } }
+.intro img { width: min(64vw, 300px); height: min(64vw, 300px); border-radius: 50%; object-fit: cover; animation: introPop .7s cubic-bezier(.2,.9,.3,1.2) both; }
+.intro b { font: 800 22px/1 Unbounded, sans-serif; color: #fff; letter-spacing: .04em; animation: introUp .6s .35s ease both; }
+.intro.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
+@keyframes introPop { from { opacity: 0; transform: scale(.85) rotate(-3deg); } to { opacity: 1; transform: none; } }
+@keyframes introUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 /* аватарка: ровное розовое кольцо стилями, а не в картинке */
 .avatar-btn { border: 2.5px solid var(--accent); padding: 2px; background: #000; }
@@ -487,19 +461,3 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
-
-/* ===== цвета картинки в интерфейсе ===== */
-.top { border-bottom-color: rgba(232, 165, 58, .22); }
-.brand b { color: var(--cream); }
-.avatar-btn, .d-head img { border-color: var(--gold) !important; }
-.card .price, .pinfo .price { color: var(--gold-light); }
-.fav.on svg, .btn.ghost.on svg { fill: var(--gold) !important; stroke: var(--gold) !important; }
-.dots i.on { background: var(--gold) !important; }
-.thumbs img.on { border-color: var(--gold); }
-.chip.on { color: var(--cream) !important; }
-.btn.accent { background: linear-gradient(180deg, #d4200f, var(--red)); color: var(--cream); box-shadow: inset 0 0 0 1px rgba(246, 199, 102, .35); }
-.btn.outline { border-color: rgba(243, 230, 200, .55); color: var(--cream); }
-.section-head h2 { color: var(--cream); }
-.pbadge { color: var(--gold) !important; }
-.ask { border-color: rgba(232, 165, 58, .3); }
-.best { background: var(--red) !important; color: var(--cream) !important; }

@@ -440,9 +440,9 @@
   (() => {
     const intro = document.getElementById('intro');
     if (!intro) return;
-    // Заставка с журавлями висит 3 секунды (каталог за это время грузится под ней); тап — пропустить.
+    // Заставка (аватарка бота + надпись) — 3 секунды, каталог за это время грузится под ней; тап — пропустить.
     let gone = false;
-    const hide = () => { if (gone) return; gone = true; intro.classList.add('out'); setTimeout(() => intro.remove(), 500); };
+    const hide = () => { if (gone) return; gone = true; intro.classList.add('out'); setTimeout(() => intro.remove(), 450); };
     setTimeout(hide, 3000);
     intro.addEventListener('click', hide);
   })();
