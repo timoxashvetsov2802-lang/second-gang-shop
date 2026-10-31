@@ -145,7 +145,6 @@ function checkInitData(initData) {
 // Каталог магазина (data.js) — по нему бот сверяет посты каналов.
 const CATALOG_FILE = new URL('../data.js', import.meta.url);
 const str = (v, n) => String(v ?? '').slice(0, n);
-const wantHits = new Map(); // «Купить» — не чаще раза в 10 с с одного покупателя
 
 // ---------- файлы мини-аппки ----------
 // Отдаём только страницу, скрипты, стили и картинки из img/ — папка bot/ (токен, заказы) наружу не попадает.
@@ -170,8 +169,7 @@ function staticFile(rawUrl) {
 // live.js = товары из каналов + скрытые админом. Бот пишет его в корень магазина и пушит вместе с фото,
 // через минуту GitHub Pages его отдаёт. PUBLISH=0 — не пушить (например, на Render).
 const LIVE_FILE = new URL('live.js', SHOP_DIR);
-// LIVE_API — текущий адрес туннеля: аппка из кнопки канала открывается без ?api= и берёт его отсюда.
-const liveJs = () => `window.PRODUCTS.push(...${JSON.stringify(autoProducts()).replace(/</g, '\\u003c')});\nwindow.HIDDEN = ${JSON.stringify([...hidden])};\nwindow.LIVE_API = ${JSON.stringify(publicUrl)};\n`;
+const liveJs = () => `window.PRODUCTS.push(...${JSON.stringify(autoProducts()).replace(/</g, '\\u003c')});\nwindow.HIDDEN = ${JSON.stringify([...hidden])};\n`;
 const git = (...args) => new Promise((resolve) => {
   execFile('git', args, { cwd: fileURLToPath(SHOP_DIR), windowsHide: true, timeout: 120e3 }, (err, stdout, stderr) => resolve({ ok: !err, out: String(stdout) + String(stderr) }));
 });
@@ -294,33 +292,6 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Админ убирает товар из магазина или возвращает его: { id, hidden: true|false }.
-  // «Купить»: Telegram не везде подставляет текст в чат продавца, поэтому бот сам пишет менеджеру,
-  // кто и что хочет купить. Ничего не сохраняем — это просто уведомление.
-  if (req.method === 'POST' && req.url === '/want') {
-    if (!user) return json(403, { error: 'bad initData' });
-    let body = '';
-    for await (const chunk of req) { body += chunk; if (body.length > 2e3) return json(413, { error: 'too large' }); }
-    try {
-      const now = Date.now();
-      if (now - (wantHits.get(user.id) || 0) < 10e3) return json(429, { error: 'slow down' });
-      wantHits.set(user.id, now);
-      const sandbox = { window: {} };
-      vm.runInNewContext(fs.readFileSync(CATALOG_FILE, 'utf8'), sandbox, { timeout: 1000 });
-      const byId = new Map((sandbox.window.PRODUCTS || []).concat(autoProducts()).map((p) => [p.id, p]));
-      const items = [...new Set((JSON.parse(body).ids || []).slice(0, 10).map((x) => str(x, 80)))].map((id) => byId.get(id)).filter(Boolean);
-      if (!items.length) return json(400, { error: 'bad items' });
-      const who = user.username ? '@' + esc(user.username) : `<a href="tg://user?id=${user.id}">${esc(user.first_name) || 'покупатель'}</a>`;
-      const line = (p) => `• ${p.post ? `<a href="https://t.me/${p.post}">${esc(p.title)}</a>` : esc(p.title)}${p.size ? ` (${esc(p.size)})` : ''} — ${esc(p.price)} ₽`;
-      const text = `🛍 <b>Хотят купить</b> — ${who}\n\n${items.map(line).join('\n')}` +
-        (items.length > 1 ? `\n\nИтого: <b>${items.reduce((sum, p) => sum + p.price, 0)} ₽</b>` : '') +
-        '\n\n<i>Покупателю открылся чат с менеджером — он напишет сам, или напиши ему первым.</i>';
-      const kb = user.username ? { inline_keyboard: [[{ text: 'Написать покупателю', url: `https://t.me/${user.username}` }]] } : undefined;
-      for (const admin of ADMINS) await api('sendMessage', { chat_id: admin, text, parse_mode: 'HTML', reply_markup: kb, link_preview_options: { is_disabled: true } });
-      console.log(new Date().toISOString(), 'хотят купить', user.id, items.map((p) => p.id).join(', '));
-      return json(200, { ok: true });
-    } catch { return json(400, { error: 'bad request' }); }
-  }
-
   if (req.method === 'POST' && req.url === '/hide') {
     if (!user || !isAdminId(user.id)) return json(403, { error: 'admins only' });
     let body = '';
@@ -402,7 +373,6 @@ if (WEBHOOK) setInterval(() => fetch(publicUrl + '/health').catch(() => {}), 10 
 if (process.env.TUNNEL === '1' && !process.env.PUBLIC_URL) {
   startTunnel(PORT, (url) => {
     publicUrl = url;
-    publishLive();
     console.log(new Date().toISOString(), 'публичный адрес', url);
     setMenu().catch((e) => console.error('menu', e));
   });
