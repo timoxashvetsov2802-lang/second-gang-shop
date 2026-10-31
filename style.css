@@ -1,4 +1,29 @@
 :root {
+  /* по умолчанию тёмная тема, светлая — html.light (переключатель в меню) */
+  --bg: #000;
+  --surface: #0e0e0e;
+  --surface-2: #171717;
+  --line: #262626;
+  --text: #fff;
+  --muted: #8a8a8a;
+  --dim: #5a5a5a;
+  --invert-bg: #fff;
+  --invert-text: #000;
+  --fav-bg: rgba(0,0,0,.45);
+  --fav-ink: #fff;
+  --quote: #e9e9e9;
+  --noph-line: rgba(255,255,255,.035);
+  --noph-a: #1f1f1f;
+  --noph-b: #0b0b0b;
+  --radius: 14px;
+  --accent: #ff2e88;
+  --accent-ink: #fff;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  /* В фуллскрине Telegram рисует свои кнопки поверх страницы — отступаем от них */
+  --safe-t: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+  color-scheme: dark;
+}
+html.light {
   --bg: #fff;
   --surface: #f7f7f7;
   --surface-2: #f0f0f0;
@@ -8,12 +33,13 @@
   --dim: #a8a8a8;
   --invert-bg: #0a0a0a;
   --invert-text: #fff;
-  --radius: 14px;
-  --accent: #ff2e88;
-  --accent-ink: #fff;
-  --safe-b: env(safe-area-inset-bottom, 0px);
-  /* В фуллскрине Telegram рисует свои кнопки поверх страницы — отступаем от них */
-  --safe-t: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+  --fav-bg: rgba(255,255,255,.9);
+  --fav-ink: #0a0a0a;
+  --quote: #222;
+  --noph-line: rgba(0,0,0,.035);
+  --noph-a: #f6f6f6;
+  --noph-b: #e8e8e8;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -92,9 +118,9 @@ body.has-bar #view { padding-bottom: calc(96px + var(--safe-b)); }
 }
 .fav {
   position: absolute; right: 6px; top: 6px; width: 34px; height: 34px; border-radius: 50%;
-  display: grid; place-items: center; background: rgba(255,255,255,.9); z-index: 2; box-shadow: 0 1px 4px rgba(0,0,0,.12);
+  display: grid; place-items: center; background: var(--fav-bg); z-index: 2;
 }
-.fav svg { width: 18px; height: 18px; fill: none; stroke: #0a0a0a; stroke-width: 2; }
+.fav svg { width: 18px; height: 18px; fill: none; stroke: var(--fav-ink); stroke-width: 2; }
 .card .price { font-weight: 800; font-size: 17px; margin-top: 8px; letter-spacing: -.01em; }
 .card .title { font-size: 14px; margin-top: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .card .meta { color: var(--muted); font-size: 12px; margin-top: 4px; }
@@ -286,8 +312,8 @@ body.tg .back { display: none; }
   position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center;
   padding: 14px; text-align: center; gap: 6px;
   background:
-    repeating-linear-gradient(135deg, transparent 0 14px, rgba(0,0,0,.035) 14px 15px),
-    radial-gradient(120% 90% at 50% 0%, #f6f6f6, #e8e8e8);
+    repeating-linear-gradient(135deg, transparent 0 14px, var(--noph-line) 14px 15px),
+    radial-gradient(120% 90% at 50% 0%, var(--noph-a), var(--noph-b));
 }
 .noph .np-brand { font: 800 17px/1.1 Unbounded, Inter, sans-serif; text-transform: uppercase; letter-spacing: .01em; word-break: break-word; }
 .noph .np-cat { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; }
@@ -361,6 +387,13 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 .d-nav a svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
 .d-nav .grow { flex: 1; }
 .d-links { padding-top: 6px; }
+.d-theme { display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px; margin-top: 6px; border-radius: 12px; font-weight: 600; font-size: 15px; text-align: left; }
+.d-theme svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.d-theme .grow { flex: 1; }
+.d-theme .sw { width: 40px; height: 24px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); position: relative; flex: none; transition: background .2s; }
+.d-theme .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .2s, background .2s; }
+html.light .d-theme .sw { background: var(--accent); border-color: var(--accent); }
+html.light .d-theme .sw::after { transform: translateX(16px); background: #fff; }
 .d-links a { font-size: 14px; }
 
 .best {
@@ -410,7 +443,7 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 .fact-note { color: var(--muted); font-size: 13px; margin-top: 8px; }
 .quote {
   margin: 18px 0 0; padding: 4px 0 4px 14px; border-left: 3px solid var(--accent);
-  font-size: 16px; line-height: 1.5; color: #222; white-space: pre-line;
+  font-size: 16px; line-height: 1.5; color: var(--quote); white-space: pre-line;
 }
 .ask {
   display: flex; align-items: center; gap: 10px; margin-top: 20px; padding: 14px; border-radius: 14px;
@@ -431,18 +464,18 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 
 /* ===== заставка ===== */
 .intro {
-  position: fixed; inset: 0; z-index: 100; background: #fff;
+  position: fixed; inset: 0; z-index: 100; background: var(--bg);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
   transition: opacity .45s ease, transform .45s ease;
 }
 .intro img { width: min(64vw, 300px); height: min(64vw, 300px); border-radius: 50%; object-fit: cover; animation: introPop .7s cubic-bezier(.2,.9,.3,1.2) both; }
-.intro b { font: 800 22px/1 Unbounded, sans-serif; color: #0a0a0a; letter-spacing: .04em; animation: introUp .6s .35s ease both; }
+.intro b { font: 800 22px/1 Unbounded, sans-serif; color: var(--text); letter-spacing: .04em; animation: introUp .6s .35s ease both; }
 .intro.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
 /* Пока идёт заставка, каталог под ней не листается (на ПК колёсиком и полосой справа). */
 html.intro-on, html.intro-on body { overflow: hidden; }
 /* Полосы прокрутки на ПК не рисуем, как в телефоне: иначе после заставки она появляется справа
    и вся аппка прыгает на её ширину. Колёсиком и тачпадом листается как обычно. */
-html { color-scheme: light; scrollbar-width: none; }
+html { scrollbar-width: none; }
 ::-webkit-scrollbar { display: none; }
 /* Ленты фото и чипсы на ПК тянутся мышкой с зажатой кнопкой. */
 .slides, .thumbs, .chips { user-select: none; -webkit-user-drag: none; }

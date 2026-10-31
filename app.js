@@ -6,10 +6,15 @@
   const $scrim = document.getElementById('scrim');
   const S = window.SHOP;
 
+  // Тема: по умолчанию тёмная, светлая включается в меню. Класс на <html> ставит скрипт в index.html до отрисовки.
+  function paintTg() {
+    const c = document.documentElement.classList.contains('light') ? '#ffffff' : '#000000';
+    try { tg.setHeaderColor(c); tg.setBackgroundColor(c); tg.setBottomBarColor && tg.setBottomBarColor(c); } catch (e) {}
+  }
   if (tg) {
     tg.ready();
     tg.expand();
-    try { tg.setHeaderColor('#ffffff'); tg.setBackgroundColor('#ffffff'); tg.setBottomBarColor && tg.setBottomBarColor('#ffffff'); } catch (e) {}
+    paintTg();
     if (inTg) {
       document.body.classList.add('tg');
       try {
@@ -64,6 +69,7 @@
     arrow: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
     back: '<svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>',
     eye: '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 8.5 4 9.5 6-.5 1-1.6 2.6-3.2 3.9M6.6 7.6C4.6 8.9 3.1 10.8 2.5 12c1 2 4.5 6 9.5 6 1.6 0 3-.4 4.3-1"/></svg>',
+    sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
     cross: '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   };
 
@@ -302,6 +308,7 @@
         ${item('#/about', I.info, 'О магазине', 'about')}
         ${isAdmin ? item('#/hidden', I.eye, 'Скрытые', 'hidden', window.PRODUCTS.filter((p) => isSold(p.id)).length) : ''}
       </nav>
+      <button class="d-theme" data-theme>${I.sun}<span class="grow">Светлая тема</span><i class="sw"></i></button>
       <div class="d-links links">${linkRows()}</div>
     `;
   }
@@ -444,7 +451,7 @@
 
   // ---------- global clicks ----------
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-fav],[data-cat],[data-ask],[data-menu],[data-addcart],[data-rmcart],[data-buy],[data-hide],[data-ext]');
+    const t = e.target.closest('[data-fav],[data-cat],[data-ask],[data-menu],[data-addcart],[data-rmcart],[data-buy],[data-hide],[data-ext],[data-theme]');
     if (!t) return;
     if (t.dataset.fav) {
       e.preventDefault(); e.stopPropagation();
@@ -478,6 +485,12 @@
     } else if (t.dataset.buy) {
       const list = t.dataset.buy === 'cart' ? cartProducts() : [byId(t.dataset.buy)].filter(Boolean);
       if (list.length) writeSeller(list);
+    } else if (t.hasAttribute('data-theme')) {
+      const light = document.documentElement.classList.toggle('light');
+      store.set('sg_theme', light ? 'light' : 'dark');
+      document.querySelector('meta[name="theme-color"]').content = light ? '#ffffff' : '#000000';
+      if (tg) paintTg();
+      haptic();
     } else if (t.hasAttribute('data-ext')) {
       e.preventDefault(); openLink(t.getAttribute('href'));
     }
