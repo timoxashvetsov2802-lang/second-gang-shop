@@ -9,7 +9,7 @@
   if (tg) {
     tg.ready();
     tg.expand();
-    try { tg.setHeaderColor('#000000'); tg.setBackgroundColor('#000000'); tg.setBottomBarColor && tg.setBottomBarColor('#000000'); } catch (e) {}
+    try { tg.setHeaderColor('#ffffff'); tg.setBackgroundColor('#ffffff'); tg.setBottomBarColor && tg.setBottomBarColor('#ffffff'); } catch (e) {}
     if (inTg) {
       document.body.classList.add('tg');
       try {
@@ -63,6 +63,7 @@
     chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg>',
     arrow: '<svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg>',
     back: '<svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg>',
+    eye: '<svg viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 8.5 4 9.5 6-.5 1-1.6 2.6-3.2 3.9M6.6 7.6C4.6 8.9 3.1 10.8 2.5 12c1 2 4.5 6 9.5 6 1.6 0 3-.4 4.3-1"/></svg>',
     cross: '<svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   };
 
@@ -114,7 +115,7 @@
     if ([...next].join() === [...sold].join()) return;
     sold = next; store.set('sg_sold', [...sold]);
     const route = location.hash.split('/')[1] || '';
-    if (['', 'fav', 'p'].includes(route)) { render.keepScroll = true; render(); }
+    if (['', 'fav', 'p', 'hidden'].includes(route)) { render.keepScroll = true; render(); }
   };
   async function syncSold() {
     if (!API) return;
@@ -157,7 +158,7 @@
 
   // ---------- views ----------
   function home() {
-    const list = window.PRODUCTS.filter((p) => (isAdmin || !isSold(p.id)) &&
+    const list = window.PRODUCTS.filter((p) => !isSold(p.id) &&
       (cat === 'Все' || p.category === cat) &&
       (!query || (p.title + ' ' + p.brand).toLowerCase().includes(query.toLowerCase()))
     ).sort((a, b) => b.added.localeCompare(a.added));
@@ -241,6 +242,17 @@
     `;
   }
 
+  // Раздел для админа: всё, что убрано из магазина (вручную или по «продано» в канале). Тап — карточка с «Вернуть».
+  function hiddenView() {
+    if (!isAdmin) return notFound();
+    const list = window.PRODUCTS.filter((p) => isSold(p.id)).sort((a, b) => b.added.localeCompare(a.added));
+    return `
+      <div class="ptop">${backLink('#/')}<h1>Скрытые</h1><p>${list.length ? list.length + ' ' + plural(list.length, 'вещь', 'вещи', 'вещей') + ' не видно покупателям' : 'Все вещи в магазине'}</p></div>
+      ${list.length ? `<div class="grid" style="padding-top:12px">${list.map((p, i) => card(p, i)).join('')}</div>`
+        : `<div class="empty"><b>Пусто</b>Убранные вещи появятся здесь<br><a class="btn" href="#/">В каталог</a></div>`}
+    `;
+  }
+
   function about() {
     return `
       <div class="ptop">${backLink('#/')}</div>
@@ -288,6 +300,7 @@
         ${item('#/cart', I.bag, 'Корзина', 'cart', cartProducts().length)}
         ${item('#/fav', I.heart, 'Избранное', 'fav', favs.size)}
         ${item('#/about', I.info, 'О магазине', 'about')}
+        ${isAdmin ? item('#/hidden', I.eye, 'Скрытые', 'hidden', window.PRODUCTS.filter((p) => isSold(p.id)).length) : ''}
       </nav>
       <div class="d-links links">${linkRows()}</div>
     `;
@@ -352,6 +365,7 @@
       case 'cart': html = cartView(); break;
       case 'fav': html = favorites(); break;
       case 'about': html = about(); break;
+      case 'hidden': html = hiddenView(); break;
       default: html = home();
     }
     $view.innerHTML = html;
@@ -360,7 +374,7 @@
     // Списки (каталог, избранное, корзина) открываются на том же месте, где ушли с них.
     const key = location.hash || '#/';
     if (render.keepScroll) { /* остаёмся где были */ }
-    else if (['', 'fav', 'cart'].includes(route || '') && scrollMem[key] != null) window.scrollTo(0, scrollMem[key]);
+    else if (['', 'fav', 'cart', 'hidden'].includes(route || '') && scrollMem[key] != null) window.scrollTo(0, scrollMem[key]);
     else window.scrollTo(0, 0);
     render.keepScroll = false;
 

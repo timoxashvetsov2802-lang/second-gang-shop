@@ -22,68 +22,12 @@ const WEBAPP_URL = process.env.WEBAPP_URL === 'self' ? '' : process.env.WEBAPP_U
 const PORT = Number(process.env.PORT) || 3000;
 if (!TOKEN) throw new Error('BOT_TOKEN is not set');
 
-// ---------- хранилище заказов ----------
+// ---------- данные ----------
 const DATA_DIR = process.env.DATA_DIR ? new URL(`file:///${process.env.DATA_DIR.replace(/\\/g, '/').replace(/\/?$/, '/')}`) : new URL('./data/', import.meta.url);
-const DB_FILE = new URL('./orders.json', DATA_DIR);
 fs.mkdirSync(DATA_DIR, { recursive: true });
-let orders = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : [];
-const save = () => { fs.writeFileSync(DB_FILE, JSON.stringify(orders, null, 1)); scheduleBackup(); };
-
-// Бесплатный хостинг стирает диск при перезапуске, поэтому копия заказов лежит файлом,
-// закреплённым в чате первого админа с ботом. Обновляется молча (правка сообщения не шлёт уведомлений).
-const BACKUP_CHAT = ADMINS[0];
-const BACKUP_TAG = '#sg_orders_backup';
-let backupMsgId = 0;
-let backupTimer = null;
-function scheduleBackup() {
-  if (!BACKUP_CHAT || process.env.BACKUP === '0') return;
-  clearTimeout(backupTimer);
-  backupTimer = setTimeout(() => pushBackup().catch((e) => console.error('backup', e)), 3000);
-}
-async function tgUpload(method, fields, fileField, name, content) {
-  const form = new FormData();
-  for (const [k, v] of Object.entries(fields)) form.append(k, typeof v === 'string' ? v : JSON.stringify(v));
-  form.append(fileField, new Blob([content], { type: 'application/json' }), name);
-  try {
-    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, { method: 'POST', body: form, signal: AbortSignal.timeout(30e3) });
-    const j = await r.json();
-    if (!j.ok) console.error(method, j.description);
-    return j.result;
-  } catch (e) { console.error(method, 'сеть:', e.cause?.code || e.message); return undefined; }
-}
-async function pushBackup() {
-  const content = JSON.stringify(orders);
-  const caption = `${BACKUP_TAG}\nКопия заказов для бота — не удаляй и не открепляй. Заказов: ${orders.length}`;
-  if (backupMsgId) {
-    const ok = await tgUpload('editMessageMedia', {
-      chat_id: String(BACKUP_CHAT), message_id: String(backupMsgId),
-      media: { type: 'document', media: 'attach://f', caption },
-    }, 'f', 'orders.json', content);
-    if (ok) return;
-  }
-  const msg = await tgUpload('sendDocument', { chat_id: String(BACKUP_CHAT), caption, disable_notification: 'true' }, 'document', 'orders.json', content);
-  if (msg) {
-    backupMsgId = msg.message_id;
-    await api('pinChatMessage', { chat_id: BACKUP_CHAT, message_id: backupMsgId, disable_notification: true });
-  }
-}
-// При старте без локального файла поднимаем заказы из закреплённой копии.
-async function restoreBackup() {
-  if (!BACKUP_CHAT) return;
-  const chat = await api('getChat', { chat_id: BACKUP_CHAT });
-  const pin = chat && chat.pinned_message;
-  if (!pin || !pin.document || !(pin.caption || '').startsWith(BACKUP_TAG)) return;
-  backupMsgId = pin.message_id;
-  if (orders.length) return;
-  const file = await api('getFile', { file_id: pin.document.file_id });
-  if (!file) return;
-  try {
-    const r = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`, { signal: AbortSignal.timeout(30e3) });
-    const data = await r.json();
-    if (Array.isArray(data)) { orders = data; fs.writeFileSync(DB_FILE, JSON.stringify(orders, null, 1)); console.log('заказы восстановлены из копии:', orders.length); }
-  } catch (e) { console.error('restore', e.message); }
-}
-const itemsOf = (o) => (o.items && o.items.length ? o.items : [{ productId: o.productId, title: o.title, size: o.size, price: o.total }]);
+// Заказов больше нет: «Купить» сразу открывает чат с менеджером. Из старого orders.json берём только тех,
+// кому бот когда-то ставил личную кнопку «Магазин», — чтобы им тоже обновлялся адрес.
+const LEGACY_USERS = (() => { try { return JSON.parse(fs.readFileSync(new URL('./orders.json', DATA_DIR), 'utf8')).map((o) => o.userId); } catch { return []; } })();
 // Скрытые товары (админ убрал в аппке или в канале написали «продано») — для покупателей они как проданные.
 // Заказы вещи больше не прячут: «Купить» теперь просто открывает чат с менеджером, а старые тестовые
 // заказы из прежнего оформления сами «продавали» вещи, и вернуть их кнопкой было нельзя.
@@ -91,19 +35,7 @@ const HIDDEN_FILE = new URL('./hidden.json', DATA_DIR);
 let hidden = new Set(fs.existsSync(HIDDEN_FILE) ? JSON.parse(fs.readFileSync(HIDDEN_FILE, 'utf8')) : []);
 const saveHidden = () => fs.writeFileSync(HIDDEN_FILE, JSON.stringify([...hidden]));
 const soldIds = () => new Set(hidden);
-const findOrder = (id) => orders.find((o) => o.id.toUpperCase() === String(id).toUpperCase());
-
-// paid и expired остались от старой демо-оплаты — чтобы старые заказы показывались нормально.
-const STATUS = {
-  new: 'Новый', paid: 'Новый', accepted: 'Принят', packing: 'Собираем', shipped: 'Отправлен',
-  delivered: 'Доставлен', canceled: 'Отменён', expired: 'Бронь снята',
-};
-const EMOJI = { new: '🛍', paid: '🛍', accepted: '✅', packing: '📦', shipped: '🚚', delivered: '🏁', canceled: '✖️', expired: '⌛' };
 const MANAGER = process.env.MANAGER || 'flex_why';
-const TRACK_URL = {
-  cdek: (n) => `https://www.cdek.ru/ru/tracking/?order_id=${encodeURIComponent(n)}`,
-  post: (n) => `https://www.pochta.ru/tracking?barcode=${encodeURIComponent(n)}`,
-};
 
 // ---------- Telegram API ----------
 // Сбой сети не должен ронять бота: ошибку логируем и возвращаем undefined, вызывающий код это переживает.
@@ -141,7 +73,7 @@ async function setMenu() {
   if (!shopBase()) return; // адрес туннеля ещё не получен
   await api('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Магазин', web_app: { url: appUrl() } } });
   // Покупателям с личной кнопкой тоже обновляем адрес.
-  const users = [...new Set(orders.map((o) => o.userId).concat(ADMINS))];
+  const users = [...new Set(LEGACY_USERS.concat(ADMINS))];
   for (const id of users) await api('setChatMenuButton', { chat_id: id, menu_button: { type: 'web_app', text: 'Магазин', web_app: { url: appUrl() } } });
 }
 
@@ -152,77 +84,16 @@ async function setup() {
     await api('deleteWebhook', { drop_pending_updates: false });
   }
   await api('setMyCommands', { commands: [{ command: 'start', description: 'Открыть магазин' }] });
-  for (const admin of ADMINS) {
-    await api('setMyCommands', {
-      scope: { type: 'chat', chat_id: admin },
-      commands: [
-        { command: 'start', description: 'Открыть магазин' },
-        { command: 'orders', description: 'Активные заказы' },
-        { command: 'track', description: 'Трек: /track SG-XXXXX номер' },
-      ],
-    });
-  }
+  // У админов были свои команды (заказы, треки) — возвращаем им общий список.
+  for (const admin of ADMINS) await api('deleteMyCommands', { scope: { type: 'chat', chat_id: admin } });
   await api('setMyShortDescription', { short_description: 'SECOND GANG SHOP — архивные вещи.' });
   await api('setMyDescription', { description: `SECOND GANG SHOP\n\nКаталог вещей прямо в Telegram: жми «Магазин» внизу, выбирай вещь и жми «Купить» — откроется чат с менеджером @${MANAGER}, там договоритесь об оплате и отправке.` });
   await setMenu();
 }
 
-// ---------- карточка заказа для админа ----------
-function adminText(o) {
-  return `${EMOJI[o.status] || '🛍'} <b>Заказ ${esc(o.id)}</b> — ${esc(STATUS[o.status] || o.status)}\n\n` +
-    itemsOf(o).map((i) => `• ${esc(i.title)}${i.size ? ` (${esc(i.size)})` : ''} — ${esc(i.price)} ₽`).join('\n') + '\n' +
-    `Итого: <b>${esc(o.total)} ₽</b>\n` +
-    `💬 Оплаты в приложении нет — напиши покупателю и договорись об оплате.\n\n` +
-    `ФИО: ${esc(o.name)}\nТел: ${esc(o.phone)}\n` +
-    `Доставка: ${esc(o.delivery)}\nАдрес: ${esc(o.addr)}\n` +
-    (o.comment ? `Комментарий: ${esc(o.comment)}\n` : '') +
-    (o.track ? `\nТрек: <code>${esc(o.track)}</code>\n` : '') +
-    `\nПокупатель: ${o.username ? '@' + esc(o.username) : `<a href="tg://user?id=${o.userId}">${esc(o.firstName) || 'написать'}</a>`} (id ${o.userId})\n` +
-    (o.status === 'expired' ? ''
-      : o.status === 'shipped' || o.status === 'delivered' || o.status === 'canceled' ? ''
-      : '\n<i>Чтобы отправить трек-номер — ответь на это сообщение цифрами трека.</i>');
-}
-function adminKeyboard(o) {
-  const b = (st, text) => ({ text: (o.status === st ? '• ' : '') + text, callback_data: `st:${o.id}:${st}` });
-  return { inline_keyboard: [
-    [b('accepted', 'Принят'), b('packing', 'Собираем')],
-    [b('delivered', 'Доставлен'), b('canceled', 'Отменить')],
-  ] };
-}
-async function refreshAdmin(o) {
-  for (const m of o.adminMsgs || []) {
-    await api('editMessageText', { chat_id: m.chat, message_id: m.msg, text: adminText(o), parse_mode: 'HTML', reply_markup: adminKeyboard(o) });
-  }
-}
-
-async function notifyBuyer(o) {
-  let text = `${EMOJI[o.status]} Заказ <b>${esc(o.id)}</b>: ${esc(STATUS[o.status])}\n${esc(o.title)}`;
-  if (o.status === 'shipped' && o.track) {
-    text += `\n\nТрек-номер ${esc(o.delivery)}: <code>${esc(o.track)}</code>`;
-    if (TRACK_URL[o.deliveryId]) text += `\n<a href="${TRACK_URL[o.deliveryId](o.track)}">Отследить посылку</a>`;
-  }
-  if (o.status === 'delivered') text += '\n\nСпасибо за покупку! Будем рады отзыву в @gangfeedback';
-  await api('sendMessage', {
-    chat_id: o.userId, text, parse_mode: 'HTML', link_preview_options: { is_disabled: true },
-    reply_markup: { inline_keyboard: [[{ text: 'Открыть заказ', web_app: { url: appUrl(`#/order/${o.id}`) } }]] },
-  });
-}
-
-async function setStatus(o, status, track) {
-  o.status = status;
-  if (track) o.track = track;
-  o.updatedAt = new Date().toISOString();
-  save();
-  await refreshAdmin(o);
-  await notifyBuyer(o);
-}
-
 // ---------- обработка апдейтов ----------
-const TRACK_RE = /^[A-Za-z0-9-]{6,30}$/;
-
 async function onMessage(m) {
   const text = (m.text || '').trim();
-  const isAdmin = m.from && isAdminId(m.from.id);
 
   if (text.startsWith('/start')) {
     return api('sendMessage', {
@@ -232,46 +103,10 @@ async function onMessage(m) {
       reply_markup: shopButton(),
     });
   }
-  if (!isAdmin) return;
-
-  // Ответ на карточку заказа цифрами — это трек-номер.
-  const replied = m.reply_to_message && orders.find((o) => (o.adminMsgs || []).some((x) => x.chat === m.chat.id && x.msg === m.reply_to_message.message_id));
-  if (replied && TRACK_RE.test(text.replace(/\s/g, ''))) {
-    const track = text.replace(/\s/g, '');
-    await setStatus(replied, 'shipped', track);
-    return api('sendMessage', { chat_id: m.chat.id, text: `🚚 Трек ${track} добавлен к ${replied.id}, покупатель уведомлён.`, reply_parameters: { message_id: m.message_id } });
-  }
-
-  const tr = text.match(/^\/track\s+(SG-\w+)\s+(\S+)/i);
-  if (tr) {
-    const o = findOrder(tr[1]);
-    if (!o) return api('sendMessage', { chat_id: m.chat.id, text: `Заказ ${tr[1]} не найден` });
-    await setStatus(o, 'shipped', tr[2]);
-    return api('sendMessage', { chat_id: m.chat.id, text: `🚚 Трек ${tr[2]} добавлен к ${o.id}, покупатель уведомлён.` });
-  }
-  if (text.startsWith('/track')) {
-    return api('sendMessage', { chat_id: m.chat.id, text: 'Формат: /track SG-XXXXX трек-номер\nИли просто ответь на карточку заказа цифрами трека.' });
-  }
-
-  if (text.startsWith('/orders')) {
-    const active = orders.filter((o) => !['delivered', 'canceled'].includes(o.status)).slice(-20);
-    if (!active.length) return api('sendMessage', { chat_id: m.chat.id, text: 'Активных заказов нет' });
-    return api('sendMessage', {
-      chat_id: m.chat.id, parse_mode: 'HTML',
-      text: '<b>Активные заказы</b>\n\n' + active.map((o) => `${EMOJI[o.status]} <code>${o.id}</code> — ${esc(o.title)}, ${esc(STATUS[o.status])}${o.track ? `, трек ${esc(o.track)}` : ''}`).join('\n'),
-    });
-  }
 }
 
-async function onCallback(q) {
-  const [kind, id, st] = (q.data || '').split(':');
-  if (kind !== 'st' || !isAdminId(q.from.id)) return api('answerCallbackQuery', { callback_query_id: q.id });
-  const o = findOrder(id);
-  if (!o || !STATUS[st]) return api('answerCallbackQuery', { callback_query_id: q.id, text: 'Заказ не найден' });
-  if (o.status === st) return api('answerCallbackQuery', { callback_query_id: q.id, text: 'Уже стоит этот статус' });
-  await setStatus(o, st);
-  return api('answerCallbackQuery', { callback_query_id: q.id, text: `${o.id}: ${STATUS[st]}` });
-}
+// Кнопок у бота больше нет — просто гасим «часики» на старых сообщениях.
+const onCallback = (q) => api('answerCallbackQuery', { callback_query_id: q.id });
 
 async function poll() {
   let offset = 0;
@@ -307,37 +142,8 @@ function checkInitData(initData) {
   try { return JSON.parse(params.get('user') || 'null'); } catch { return null; }
 }
 
-// Каталог читаем с диска (тот же data.js, что на сайте): цены и названия берём отсюда, а не из запроса.
+// Каталог магазина (data.js) — по нему бот сверяет посты каналов.
 const CATALOG_FILE = new URL('../data.js', import.meta.url);
-let catalog = { mtime: 0, byId: new Map() };
-function getCatalog() {
-  const { mtimeMs } = fs.statSync(CATALOG_FILE);
-  if (mtimeMs !== catalog.mtime) {
-    const sandbox = { window: {} };
-    vm.runInNewContext(fs.readFileSync(CATALOG_FILE, 'utf8'), sandbox, { timeout: 1000 });
-    catalog = { mtime: mtimeMs, byId: new Map((sandbox.window.PRODUCTS || []).map((p) => [p.id, p])) };
-  }
-  return catalog.byId;
-}
-
-// Не больше 3 заказов в сутки и 1 запроса в 10 секунд на покупателя — защита от того,
-// чтобы кто-то «скупил» весь каталог фейковыми заказами.
-const lastHit = new Map();
-function rateLimited(userId) {
-  const now = Date.now();
-  if (now - (lastHit.get(userId) || 0) < 10e3) return true;
-  lastHit.set(userId, now);
-  const day = orders.filter((o) => o.userId === userId && now - Date.parse(o.createdAt) < 864e5 && o.status !== 'canceled');
-  return day.length >= 3;
-}
-const NAME_RE = /^[А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?( [А-ЯЁ][а-яё]+(-[А-ЯЁ][а-яё]+)?){1,2}$/;
-const PHONE_RE = /^\+7 \(9\d\d\) \d{3}-\d\d-\d\d$/;
-
-const pick = (o) => ({
-  id: o.id, productId: o.productId, items: itemsOf(o), title: o.title, size: o.size, total: o.total, name: o.name, phone: o.phone,
-  addr: o.addr, delivery: o.delivery, deliveryId: o.deliveryId, comment: o.comment,
-  status: o.status, track: o.track || '', createdAt: o.createdAt, updatedAt: o.updatedAt,
-});
 const str = (v, n) => String(v ?? '').slice(0, n);
 
 // ---------- файлы мини-аппки ----------
@@ -502,53 +308,6 @@ const server = http.createServer(async (req, res) => {
     } catch { return json(400, { error: 'bad request' }); }
   }
 
-  if (req.method === 'GET' && req.url === '/orders') {
-    if (!user) return json(403, { error: 'bad initData' });
-    return json(200, orders.filter((o) => o.userId === user.id).map(pick));
-  }
-
-  if (req.method === 'POST' && req.url === '/order') {
-    if (!user) return json(403, { error: 'bad initData' });
-    let body = '';
-    for await (const chunk of req) { body += chunk; if (body.length > 2e4) return json(413, { error: 'too large' }); }
-    try {
-      const o = JSON.parse(body).order || {};
-      if (!/^SG-[A-Z0-9]{3,8}$/.test(o.id) || findOrder(o.id)) return json(400, { error: 'bad id' });
-      // Из запроса берём только id вещей; цену, название и размер — из каталога на сервере.
-      const ids = [...new Set((Array.isArray(o.items) && o.items.length ? o.items.map((i) => i && i.productId) : [o.productId]).map((x) => str(x, 80)))];
-      const cat = getCatalog();
-      if (!ids.length || ids.length > 10 || ids.some((id) => !cat.has(id))) return json(400, { error: 'bad items' });
-      const items = ids.map((id) => { const p = cat.get(id); return { productId: id, title: p.title, size: p.size || '', price: p.price }; });
-      if (!NAME_RE.test(str(o.name, 120)) || !PHONE_RE.test(str(o.phone, 30)) || str(o.addr, 300).trim().length < 8) return json(400, { error: 'bad contact' });
-      if (!['cdek', 'post', '5post', 'ymarket'].includes(o.deliveryId)) return json(400, { error: 'bad delivery' });
-      if (rateLimited(user.id)) return json(429, { error: 'too many orders' });
-      const taken = soldIds();
-      if (items.some((i) => taken.has(i.productId))) return json(409, { error: 'sold' });
-      const rec = {
-        id: o.id, userId: user.id, username: user.username || '', firstName: user.first_name || '',
-        productId: items[0].productId, items, title: items[0].title + (items.length > 1 ? ` + ещё ${items.length - 1}` : ''),
-        size: items[0].size, total: items.reduce((sum, i) => sum + i.price, 0),
-        name: str(o.name, 120), phone: str(o.phone, 30), addr: str(o.addr, 300),
-        delivery: str(o.delivery, 40), deliveryId: o.deliveryId, comment: str(o.comment, 500),
-        status: 'new', track: '', createdAt: new Date().toISOString(),
-      };
-      orders.push(rec); save();
-      rec.adminMsgs = [];
-      for (const admin of ADMINS) {
-        const msg = await api('sendMessage', { chat_id: admin, text: adminText(rec), parse_mode: 'HTML', reply_markup: adminKeyboard(rec) });
-        if (msg) rec.adminMsgs.push({ chat: admin, msg: msg.message_id });
-      }
-      save();
-      await api('sendMessage', {
-        chat_id: rec.userId, parse_mode: 'HTML',
-        text: `🛍 Заказ <b>${esc(rec.id)}</b> оформлен\n${esc(rec.title)} — ${esc(rec.total)} ₽\n\nМенеджер @${MANAGER} напишет тебе, чтобы договориться об оплате и отправке.`,
-        reply_markup: { inline_keyboard: [[{ text: 'Открыть заказ', web_app: { url: appUrl(`#/order/${rec.id}`) } }]] },
-      });
-      return json(200, pick(rec));
-    } catch (e) {
-      return json(400, { error: 'bad request' });
-    }
-  }
   if (req.method === 'GET' || req.method === 'HEAD') {
     if (/^\/(index\.html)?(\?.*)?$/.test(req.url)) return sendBundle(req, res);
     const file = staticFile(req.url);
@@ -558,8 +317,13 @@ const server = http.createServer(async (req, res) => {
 });
 
 process.on('unhandledRejection', (e) => console.error('unhandled', e));
-await restoreBackup().catch((e) => console.error('restore', e));
-if (!backupMsgId && orders.length) scheduleBackup();
+// Убираем из закрепа старую «Копию заказов» (раньше бот хранил там заказы).
+(async () => {
+  for (const id of ADMINS) {
+    const pin = (await api('getChat', { chat_id: id }))?.pinned_message;
+    if (pin?.document && (pin.caption || '').startsWith('#sg_orders_backup')) await api('unpinChatMessage', { chat_id: id, message_id: pin.message_id });
+  }
+})().catch((e) => console.error('unpin', e));
 server.listen(PORT, () => console.log('listening on', PORT, WEBHOOK ? `вебхук ${publicUrl}` : 'long polling'));
 setup().catch((e) => console.error('setup', e)).then(() => (WEBHOOK ? null : poll()));
 
