@@ -40,7 +40,8 @@
   if (okApi(apiParam)) store.set('sg_api', apiParam);
   const stored = store.get('sg_api', '');
   // Если аппку раздаёт сам сервер бота, он же и API.
-  const API = (okApi(apiParam) ? apiParam : okApi(location.origin) ? location.origin : okApi(stored) ? stored : '') || S.api || '';
+  // Из кнопки канала аппка открывается без ?api= — тогда берём адрес, который бот выложил в live.js.
+  const API = (okApi(apiParam) ? apiParam : okApi(location.origin) ? location.origin : okApi(window.LIVE_API) ? window.LIVE_API : okApi(stored) ? stored : '') || S.api || '';
 
   // ---------- helpers ----------
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -160,7 +161,27 @@
   const buyText = (list) => list.length === 1
     ? 'Здравствуйте! Хочу купить ' + itemLine(list[0]) + photoLine(list[0])
     : 'Здравствуйте! Хочу купить:\n' + list.map((p) => '• ' + itemLine(p) + photoLine(p)).join('\n') + '\nИтого: ' + rub(list.reduce((sum, p) => sum + p.price, 0));
-  const writeSeller = (list) => { haptic('medium'); openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(buyText(list))}`); };
+  // Telegram подставляет ?text= в чат не во всех приложениях (на ПК и в части версий — пустой чат).
+  // Поэтому бот сам пишет менеджеру, что выбрано, а покупателю текст ещё и копируется — можно вставить.
+  const copyOld = (text) => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+    ta.remove(); return ok;
+  };
+  const copyText = (text) => {
+    try { if (navigator.clipboard) return navigator.clipboard.writeText(text).then(() => true, () => copyOld(text)); } catch (e) {}
+    return Promise.resolve(copyOld(text));
+  };
+  const writeSeller = async (list) => {
+    haptic('medium');
+    const text = buyText(list);
+    if (API && inTg) fetch(API + '/want', { method: 'POST', headers: initHeaders(), body: JSON.stringify({ ids: list.map((p) => p.id) }), keepalive: true }).catch(() => {});
+    const copied = await copyText(text);
+    toast(copied ? 'Текст скопирован — вставь в чат, если он пустой' : 'Открываем чат с менеджером');
+    setTimeout(() => openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(text)}`), copied ? 900 : 0);
+  };
 
   // ---------- views ----------
   function home() {
