@@ -445,6 +445,16 @@ body.drawer-open .scrim { opacity: 1; pointer-events: auto; }
 .intro img { width: min(64vw, 300px); height: min(64vw, 300px); border-radius: 50%; object-fit: cover; animation: introPop .7s cubic-bezier(.2,.9,.3,1.2) both; }
 .intro b { font: 800 22px/1 Unbounded, sans-serif; color: #fff; letter-spacing: .04em; animation: introUp .6s .35s ease both; }
 .intro.out { opacity: 0; transform: scale(1.04); pointer-events: none; }
+/* Пока идёт заставка, каталог под ней не листается (на ПК колёсиком и полосой справа). */
+html.intro-on, html.intro-on body { overflow: hidden; }
+/* Тёмная полоса прокрутки на ПК вместо белой системной. */
+html { color-scheme: dark; scrollbar-color: #333 #000; }
+::-webkit-scrollbar { width: 8px; height: 8px; background: #000; }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+/* Ленты фото и чипсы на ПК тянутся мышкой с зажатой кнопкой. */
+.slides, .thumbs, .chips { user-select: none; -webkit-user-drag: none; }
+.slides img, .thumbs img { -webkit-user-drag: none; }
+@media (pointer: fine) { .slides, .thumbs, .chips { cursor: grab; } .dragging { cursor: grabbing; } }
 @keyframes introPop { from { opacity: 0; transform: scale(.85) rotate(-3deg); } to { opacity: 1; transform: none; } }
 @keyframes introUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 

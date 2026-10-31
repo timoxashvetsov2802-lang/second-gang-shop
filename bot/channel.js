@@ -94,6 +94,43 @@ async function newPosts(ch, lastSeen) {
   return out.sort((a, b) => a.id - b.id);
 }
 
+// Вещь продана, если в посте так написали (правкой старого поста).
+const SOLD_RE = /продан|sold\b|снят[оа]?\s+с\s+продажи|нет\s+в\s+наличии/i;
+
+// Старые посты товаров: что пометили «продано» и что удалили. Вернёт [{ id, title, why: 'sold'|'deleted' }].
+// Лента ?before=N отдаёт ~20 постов до N, поэтому одна страница закрывает сразу несколько соседних товаров.
+// Удалённым считаем пост, которого нет на странице два прохода подряд (чтобы не спутать со сбоем ленты).
+export async function checkGone(products) {
+  const state = readJson(STATE_FILE, {});
+  const missing = state._missing || {};
+  const nextMissing = {};
+  const out = [];
+  for (const ch of CHANNELS) {
+    const items = products.filter((p) => p.post?.startsWith(ch + '/')).map((p) => ({ p, n: Number(p.post.split('/')[1]) }))
+      .sort((a, b) => b.n - a.n);
+    const seen = new Map(); // id поста → текст
+    let covered = Infinity; // ниже этого id страницы ещё не смотрели
+    for (const { n } of items) {
+      if (n >= covered) continue;
+      const posts = parsePage(await get(`https://t.me/s/${ch}?before=${n + 1}`));
+      if (!posts.length) break;
+      for (const x of posts) seen.set(x.id, x.text);
+      covered = Math.min(...posts.map((x) => x.id));
+      await new Promise((r) => setTimeout(r, 700)); // не долбим t.me
+    }
+    for (const { p, n } of items) {
+      if (n < covered) continue; // не дошли (лента оборвалась) — не судим
+      if (seen.has(n)) { if (SOLD_RE.test(seen.get(n))) out.push({ id: p.id, title: p.title, why: 'sold' }); continue; }
+      if (missing[p.post]) out.push({ id: p.id, title: p.title, why: 'deleted' });
+      else nextMissing[p.post] = 1;
+    }
+  }
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  // Свежий state: importNew мог записать его, пока мы листали ленту.
+  fs.writeFileSync(STATE_FILE, JSON.stringify({ ...readJson(STATE_FILE, {}), _missing: nextMissing }));
+  return out;
+}
+
 // Один проход: вернёт добавленные товары. baseProducts — каталог из data.js.
 export async function importNew(baseProducts) {
   const auto = autoProducts();

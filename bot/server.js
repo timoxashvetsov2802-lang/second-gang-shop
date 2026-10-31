@@ -11,7 +11,7 @@ import zlib from 'node:zlib';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startTunnel } from './tunnel.js';
-import { importNew, autoProducts } from './channel.js';
+import { importNew, autoProducts, checkGone } from './channel.js';
 
 const TOKEN = process.env.BOT_TOKEN;
 const ADMINS = (process.env.ADMIN_IDS || process.env.ADMIN_ID || '').split(',').map((x) => Number(x.trim())).filter(Boolean);
@@ -84,11 +84,13 @@ async function restoreBackup() {
   } catch (e) { console.error('restore', e.message); }
 }
 const itemsOf = (o) => (o.items && o.items.length ? o.items : [{ productId: o.productId, title: o.title, size: o.size, price: o.total }]);
-// Скрытые админом товары (продано / убрали из магазина) — для покупателей они как проданные.
+// Скрытые товары (админ убрал в аппке или в канале написали «продано») — для покупателей они как проданные.
+// Заказы вещи больше не прячут: «Купить» теперь просто открывает чат с менеджером, а старые тестовые
+// заказы из прежнего оформления сами «продавали» вещи, и вернуть их кнопкой было нельзя.
 const HIDDEN_FILE = new URL('./hidden.json', DATA_DIR);
 let hidden = new Set(fs.existsSync(HIDDEN_FILE) ? JSON.parse(fs.readFileSync(HIDDEN_FILE, 'utf8')) : []);
 const saveHidden = () => fs.writeFileSync(HIDDEN_FILE, JSON.stringify([...hidden]));
-const soldIds = () => new Set(orders.filter((o) => !['canceled', 'expired'].includes(o.status)).flatMap((o) => itemsOf(o).map((i) => i.productId)).concat([...hidden]));
+const soldIds = () => new Set(hidden);
 const findOrder = (id) => orders.find((o) => o.id.toUpperCase() === String(id).toUpperCase());
 
 // paid и expired остались от старой демо-оплаты — чтобы старые заказы показывались нормально.
@@ -575,6 +577,31 @@ async function syncChannels() {
 const runSync = () => syncChannels().catch((e) => console.error(new Date().toISOString(), 'каналы:', e.message));
 runSync();
 setInterval(runSync, 5 * 60e3);
+
+// Старые посты: написали в посте «продано» или удалили пост — вещь сама уходит из магазина.
+// Каждую вещь убираем один раз: если админ вернул её кнопкой в аппке, повторно не прячем.
+const GONE_FILE = new URL('./gone-done.json', DATA_DIR);
+async function syncGone() {
+  const sandbox = { window: {} };
+  vm.runInNewContext(fs.readFileSync(CATALOG_FILE, 'utf8'), sandbox, { timeout: 1000 });
+  const gone = await checkGone((sandbox.window.PRODUCTS || []).concat(autoProducts()));
+  const done = new Set(fs.existsSync(GONE_FILE) ? JSON.parse(fs.readFileSync(GONE_FILE, 'utf8')) : []);
+  const fresh = gone.filter((g) => !done.has(g.id) && !hidden.has(g.id));
+  for (const g of gone) done.add(g.id);
+  fs.writeFileSync(GONE_FILE, JSON.stringify([...done]));
+  if (!fresh.length) return;
+  for (const g of fresh) hidden.add(g.id);
+  saveHidden();
+  publishLive();
+  console.log(new Date().toISOString(), 'убрано по каналу:', fresh.map((g) => `${g.id} (${g.why})`).join(', '));
+  const text = '🗑 <b>Убрал из магазина</b> — в канале продано или пост удалён\n\n' +
+    fresh.map((g) => `• ${esc(g.title)} — ${g.why === 'deleted' ? 'пост удалён' : 'продано'}`).join('\n') +
+    '\n\n<i>Если ошибся — открой вещь в аппке и нажми «Вернуть в магазин».</i>';
+  for (const admin of ADMINS) await api('sendMessage', { chat_id: admin, text, parse_mode: 'HTML', disable_notification: true });
+}
+const runGone = () => syncGone().catch((e) => console.error(new Date().toISOString(), 'проданные в каналах:', e.message));
+setTimeout(runGone, 60e3);
+setInterval(runGone, 10 * 60e3);
 publishLive(); // на случай, если что-то поменялось, пока бот был выключен
 // Бесплатный Render засыпает без входящих запросов — пингуем себя раз в 10 минут.
 if (WEBHOOK) setInterval(() => fetch(publicUrl + '/health').catch(() => {}), 10 * 60e3);

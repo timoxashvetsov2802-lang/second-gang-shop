@@ -391,6 +391,43 @@
     thumbs.forEach((t) => t.addEventListener('click', () => slides.scrollTo({ left: slides.clientWidth * +t.dataset.i, behavior: 'smooth' })));
   }
 
+  // ---------- листание мышкой на ПК ----------
+  // Фото товара, превью и чипсы тянутся влево-вправо с зажатой кнопкой; фото после отпускания встаёт ровно.
+  (() => {
+    let el = null, sx = 0, sl = 0, moved = false;
+    document.addEventListener('pointerdown', (e) => {
+      moved = false;
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      el = e.target.closest('.slides, .thumbs, .chips');
+      if (!el) return;
+      sx = e.clientX; sl = el.scrollLeft;
+      el.style.scrollSnapType = 'none';
+      el.classList.add('dragging');
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (!el) return;
+      const dx = e.clientX - sx;
+      if (Math.abs(dx) > 5) moved = true;
+      el.scrollLeft = sl - dx;
+    });
+    const end = (e) => {
+      if (!el) return;
+      const s = el; el = null;
+      s.classList.remove('dragging');
+      if (!s.classList.contains('slides')) { s.style.scrollSnapType = ''; return; }
+      // Хватит короткого рывка: дальше 40px — следующее/предыдущее фото.
+      const w = s.clientWidth, dx = e.clientX - sx;
+      const i = Math.round(sl / w) + (dx < -40 ? 1 : dx > 40 ? -1 : 0);
+      s.scrollTo({ left: Math.max(0, i) * w, behavior: 'smooth' });
+      setTimeout(() => { s.style.scrollSnapType = ''; }, 450);
+    };
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+    document.addEventListener('dragstart', (e) => { if (e.target.closest('.slides, .thumbs, .chips')) e.preventDefault(); });
+    // После перетаскивания отпускание кнопки — не клик (не переключаем превью и категорию).
+    document.addEventListener('click', (e) => { if (moved) { e.preventDefault(); e.stopPropagation(); moved = false; } }, true);
+  })();
+
   // ---------- global clicks ----------
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-fav],[data-cat],[data-ask],[data-menu],[data-addcart],[data-rmcart],[data-buy],[data-hide],[data-ext]');
@@ -442,7 +479,10 @@
     if (!intro) return;
     // Заставка (аватарка бота + надпись) — 3 секунды, каталог за это время грузится под ней; тап — пропустить.
     let gone = false;
-    const hide = () => { if (gone) return; gone = true; intro.classList.add('out'); setTimeout(() => intro.remove(), 450); };
+    const hide = () => {
+      if (gone) return; gone = true; intro.classList.add('out');
+      setTimeout(() => { intro.remove(); document.documentElement.classList.remove('intro-on'); }, 450);
+    };
     setTimeout(hide, 3000);
     intro.addEventListener('click', hide);
   })();
