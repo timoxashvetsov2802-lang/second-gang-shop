@@ -161,7 +161,7 @@
     ? 'Здравствуйте! Хочу купить ' + itemLine(list[0]) + photoLine(list[0])
     : 'Здравствуйте! Хочу купить:\n' + list.map((p) => '• ' + itemLine(p) + photoLine(p)).join('\n') + '\nИтого: ' + rub(list.reduce((sum, p) => sum + p.price, 0));
   // Telegram подставляет ?text= не во всех приложениях (на ПК и в части версий чат открывается пустым),
-  // поэтому текст ещё и копируется: покупатель просто вставляет его в чат.
+  // поэтому текст ещё и тихо копируется: если чат пустой, его можно просто вставить.
   const copyOld = (text) => {
     const ta = document.createElement('textarea');
     ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
@@ -169,17 +169,11 @@
     let ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
     ta.remove(); return ok;
   };
-  const copyText = (text) => {
-    // копируем сразу в обработчике нажатия, иначе браузер Telegram может запретить
-    const sync = copyOld(text);
-    if (sync || !navigator.clipboard) return Promise.resolve(sync);
-    return navigator.clipboard.writeText(text).then(() => true, () => false);
-  };
-  const writeToManager = async (text) => {
+  const writeToManager = (text) => {
     haptic('medium');
-    const copied = await copyText(text);
-    if (copied) toast('Текст скопирован — если чат пустой, просто вставь его');
-    setTimeout(() => openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(text)}`), copied ? 1200 : 0);
+    // копируем прямо в обработчике нажатия (иначе браузер Telegram может запретить) и сразу открываем чат
+    if (!copyOld(text) && navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+    openLink(`https://t.me/${S.manager}?text=${encodeURIComponent(text)}`);
   };
   const writeSeller = (list) => writeToManager(buyText(list));
 
